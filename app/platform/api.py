@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from .. import config
 from ..jobs import Job
+from ..report import store
 from .db import get_db, iso_ago, loads, now_iso, to_utc_iso
 from .labs import TASK_XP, total_tasks, user_progress, verified_tasks
 from .labs import SERVER_TASKS
@@ -51,6 +52,31 @@ def active_submissions(user_id: int) -> int:
                            "AND created_at > ?", (user_id, iso_ago(STALE_ACTIVE_S))) or 0
 
 
+_ARTIFACT_COLUMNS = {"json": "report_json", "md": "report_md", "html": "report_html"}
+
+
+def persist_artifacts(job_id: str) -> bool:
+    """Copy a finished job's report files into the database (idempotent). Free cloud hosts give the
+    container an ephemeral disk, so files alone would vanish on the next restart or spin-down."""
+    texts = {}
+    for ext in _ARTIFACT_COLUMNS:
+        path = store.artifact_path(job_id, ext)
+        if not path:
+            return False
+        texts[ext] = path.read_text(encoding="utf-8")
+    get_db().run("INSERT INTO report_artifacts (job_id, report_json, report_md, report_html, created_at) "
+                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT (job_id) DO NOTHING",
+                 (job_id, texts["json"], texts["md"], texts["html"], now_iso()))
+    return True
+
+
+def artifact_from_db(job_id: str, ext: str) -> str | None:
+    col = _ARTIFACT_COLUMNS.get(ext)
+    if not col or not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        return None
+    return get_db().scalar(f"SELECT {col} AS v FROM report_artifacts WHERE job_id = ?", (job_id,))
+
+
 def on_job_event(job: Job) -> None:
     """JobManager listener: mirror job state into every submission attached to the job."""
     db = get_db()
@@ -65,6 +91,7 @@ def on_job_event(job: Job) -> None:
                "cache_hit = ?, error = NULL, finished_at = ? WHERE job_id = ?",
                (r.verdict.final_score, r.verdict.grade, json.dumps(dims), json.dumps(details, default=str), r.total_ms,
                 1 if r.cache_hit else 0, now_iso(), job.id))
+        persist_artifacts(job.id)
     elif job.status == "failed":
         db.run("UPDATE submissions SET status = 'failed', error = ?, finished_at = ? WHERE job_id = ?",
                ((job.error or "failed")[:500], now_iso(), job.id))

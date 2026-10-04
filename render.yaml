@@ -1,0 +1,41 @@
+# Render Blueprint: deploys AutoGrader+ from this repo on Render's free plan.
+#   One click: https://render.com/deploy?repo=https://github.com/roshanraj9136/auto-grader
+#
+# Free plan notes
+# - The service sleeps after 15 min without traffic; the next visit takes about a minute to wake it.
+# - Its disk is wiped on every restart, so accounts, grades and reports live in Postgres.
+#   Use a free Neon database (no expiry): https://neon.com -> New project (region: AWS Singapore)
+#   -> copy the connection string and paste it as AUTOGRADER_DATABASE_URL when Render asks.
+# - No Docker daemon on Render: student Dockerfiles are linted statically, not built.
+# - To enable the LLM agents later, add ANTHROPIC_API_KEY in the service's Environment tab.
+services:
+  - type: web
+    name: autograder-plus
+    runtime: docker
+    plan: free
+    region: singapore            # closest Render region to India
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit    # every push to main redeploys
+    envVars:
+      - key: PORT                # Render routes traffic to this port (the Dockerfile serves on 8000)
+        value: "8000"
+      # Prompted once, when the Blueprint is created (secrets never go in this file):
+      - key: AUTOGRADER_DATABASE_URL       # postgresql://...neon.tech/neondb?sslmode=require
+        sync: false
+      - key: AUTOGRADER_INSTRUCTOR_EMAIL   # your instructor login
+        sync: false
+      - key: AUTOGRADER_INSTRUCTOR_PASSWORD
+        sync: false
+      - key: AUTOGRADER_SIGNUP_CODE        # class join code students need to sign up
+        sync: false
+      # Public-internet safe defaults:
+      - key: AUTOGRADER_DEMO_SEED          # no well-known demo accounts on a public server
+        value: "0"
+      - key: AUTOGRADER_REQUIRE_LOGIN
+        value: "1"
+      - key: AUTOGRADER_COOKIE_SECURE      # served over HTTPS
+        value: "1"
+      - key: AUTOGRADER_ENABLE_DOCKER
+        value: "0"
+      - key: AUTOGRADER_MAX_CONCURRENT_JOBS  # 0.1 CPU / 512 MB on the free plan
+        value: "1"
