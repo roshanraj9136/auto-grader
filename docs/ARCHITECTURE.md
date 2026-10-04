@@ -162,7 +162,7 @@ v2 runs **N stateless API replicas behind Nginx** (docker compose, 3 by default,
   - Every replica writes a heartbeat to `instances` every 20 s.
   - Any replica fails the unfinished submissions of replicas that stopped heart-beating (crash, scale-down, recreated container), deletes their orphaned clone directories, and repairs its own rows if a listener update was lost.
   - On shutdown, a replica fails its own in-flight submissions.
-- **Per-replica isolation on the shared volume.** In-flight clones go to `jobs/<instance-id>/`. Artifacts use unique temp files plus atomic rename.
+- **Per-replica isolation on the shared volume.** In-flight clones go to `jobs/<instance-id>/`. Artifacts use unique temp files plus atomic rename. Finished reports are also copied into the `report_artifacts` table and served from there when the file is missing, so they survive hosts with an ephemeral disk (e.g. Render's free plan) and replicas without a shared volume.
 - **Database pool.** At most 10 connections per replica. Idle connections are pinged before reuse, and DDL plus seeding is serialised with a Postgres advisory lock so replicas can start together.
 
 Next steps at course scale:

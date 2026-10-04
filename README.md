@@ -15,6 +15,19 @@ A **full-stack learning platform** built around a multi-agent grader. Students s
 
 Design details are in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. The slide deck is `docs/AutoGrader.pptx`, regenerated with `python docs/build_slides.py`.
 
+## Deploy free on Render (public URL)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/roshanraj9136/auto-grader)
+
+1. **Database (free, permanent):** at [neon.com](https://neon.com), sign in with GitHub and create a project (region: *AWS Asia Pacific (Singapore)*). Copy the connection string (`postgresql://…neon.tech/neondb?sslmode=require`).
+2. **App:** click the button above and sign in to Render with GitHub. Render reads [`render.yaml`](render.yaml) and asks for four values:
+   - `AUTOGRADER_DATABASE_URL`: the Neon connection string
+   - `AUTOGRADER_INSTRUCTOR_EMAIL` / `AUTOGRADER_INSTRUCTOR_PASSWORD`: your instructor login
+   - `AUTOGRADER_SIGNUP_CODE`: the class join code students type when they sign up
+3. Click **Deploy Blueprint**. The first build takes about 5 minutes. The app is then live at `https://autograder-plus.onrender.com` (Render adds a suffix if the name is taken).
+
+Every push to `main` redeploys automatically. On the free plan the app sleeps after 15 minutes without visitors and takes about a minute to wake, so open it a few minutes before a demo. Accounts, grades and reports are stored in Neon, so nothing is lost when it sleeps. To use the LLM agents, add `ANTHROPIC_API_KEY` in the service's *Environment* tab.
+
 ## Quick start: Windows, no Docker
 
 ```powershell
@@ -134,6 +147,7 @@ web/                 single-page app (no build step): app.js router, js/core.js,
 deploy/nginx.conf    load balancer: sticky / round-robin / least-conn upstreams, rate limits, SSE passthrough
 scripts/             start.ps1 launcher, latency benchmark, PWA icon generator
 docs/                ARCHITECTURE.md, slide deck + generator
+render.yaml          Render Blueprint: one-click free deployment (pairs with a Neon Postgres database)
 ```
 
 ## Security notes

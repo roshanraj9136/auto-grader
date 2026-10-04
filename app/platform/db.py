@@ -91,6 +91,15 @@ SCHEMA = [
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     )""",
+    # Finished reports, copied from the work dir: survive ephemeral disks (free cloud hosts restart
+    # with an empty filesystem) and replicas that do not share a volume.
+    """CREATE TABLE IF NOT EXISTS report_artifacts (
+        job_id TEXT PRIMARY KEY,
+        report_json TEXT NOT NULL,
+        report_md TEXT NOT NULL,
+        report_html TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
 ]
 
 

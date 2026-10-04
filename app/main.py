@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -352,6 +352,20 @@ async def job_events(job_id: str, request: Request):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+_REPORT_MEDIA = {"md": "text/markdown; charset=utf-8", "html": "text/html; charset=utf-8", "json": "application/json"}
+
+
+async def _artifact_response(job_id: str, fmt: str, headers: dict | None = None):
+    """Serve a report from the work dir, falling back to the database copy (ephemeral disks, other replicas)."""
+    path = store.artifact_path(job_id, fmt)
+    if path:
+        return FileResponse(path, media_type=_REPORT_MEDIA[fmt], headers=headers)
+    text = await asyncio.to_thread(platform_api.artifact_from_db, job_id, fmt)
+    if text is None:
+        return None
+    return Response(content=text.encode("utf-8"), media_type=_REPORT_MEDIA[fmt], headers=headers)
+
+
 @app.get("/api/jobs/{job_id}/report", dependencies=[Depends(require_job_access)])
 async def job_report(job_id: str):
     assert manager is not None
@@ -360,20 +374,21 @@ async def job_report(job_id: str):
         return JSONResponse(json.loads(job.report.model_dump_json()))
     if job and job.status in ("queued", "running"):
         raise HTTPException(status_code=409, detail=f"job is {job.status}")
-    path = store.artifact_path(job_id, "json")  # survives restarts / store eviction / other replicas
-    if not path:
+    resp = await _artifact_response(job_id, "json")
+    if resp is None:
         raise HTTPException(status_code=404, detail="report not found")
-    return FileResponse(path, media_type="application/json")
+    return resp
 
 
 @app.get("/api/jobs/{job_id}/report.{fmt}", dependencies=[Depends(require_job_access)])
 async def job_report_file(job_id: str, fmt: str):
-    path = store.artifact_path(job_id, fmt)
-    if not path:
-        raise HTTPException(status_code=404, detail="report not found (yet)")
-    media = {"md": "text/markdown; charset=utf-8", "html": "text/html; charset=utf-8", "json": "application/json"}[fmt]
+    if fmt not in _REPORT_MEDIA:
+        raise HTTPException(status_code=404, detail="unknown report format")
     headers = {"Content-Disposition": f'attachment; filename="autograder-{job_id[:8]}.{fmt}"'} if fmt == "md" else None
-    return FileResponse(path, media_type=media, headers=headers)
+    resp = await _artifact_response(job_id, fmt, headers)
+    if resp is None:
+        raise HTTPException(status_code=404, detail="report not found (yet)")
+    return resp
 
 
 @app.get("/api/health")
