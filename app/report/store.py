@@ -1,10 +1,12 @@
 """Persistence: content-addressed result cache + per-job report artifacts on disk."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 
 from .. import __version__, config
@@ -27,10 +29,17 @@ def cache_key(repo_url: str, commit: str, dockerfile_text: str | None, rubric: R
 
 
 def _atomic_write(path: Path, text: str) -> None:
+    """Write to a unique temp file then rename: replicas sharing the volume never clobber each other's temp file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def cache_get(key: str) -> GradeReport | None:

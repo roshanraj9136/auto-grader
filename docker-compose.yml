@@ -1,39 +1,85 @@
-# docker compose up --build   ->  http://localhost:8080
-# Static-analysis mode by default. To let AutoGrader build/run student Dockerfiles, also pass
-#   -f docker-compose.sandbox.yml   (mounts the Docker socket - read the security note first).
+# AutoGrader+ full stack:  docker compose up --build   ->  http://localhost:8080
+#
+#   browser ──► nginx (load balancer, :8080) ──► api × 3 replicas ──► postgres (private network)
+#
+# Scale the API tier live:   docker compose up -d --scale api=5      (nginx re-resolves replicas itself)
+# Share on your LAN:          AUTOGRADER_BIND=0.0.0.0 (and set AUTOGRADER_DEMO_SEED=0 + an instructor account)
+# Static Dockerfile analysis by default. To let AutoGrader build/run student Dockerfiles, also pass
+#   -f docker-compose.sandbox.yml   (mounts the Docker socket; read the security note first).
+# POSTGRES_PASSWORD is placed in a URL: use letters, digits, '-' or '_' only.
+name: autograder
+
 services:
+  db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: autograder
+      POSTGRES_USER: autograder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autograder-local-only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1: the init-time server only listens on the Unix socket, so TCP readiness = really ready
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U autograder -d autograder"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [data]            # not published to the host and not reachable from nginx
+
   api:
     build: .
-    image: autograder:1.0.0
+    image: autograder:2.0.0
+    deploy:
+      replicas: ${API_REPLICAS:-3}
     environment:
+      AUTOGRADER_DATABASE_URL: postgresql://autograder:${POSTGRES_PASSWORD:-autograder-local-only}@db:5432/autograder
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AUTOGRADER_AGENT_MODEL: ${AUTOGRADER_AGENT_MODEL:-claude-sonnet-5-5}
       AUTOGRADER_JUDGE_MODEL: ${AUTOGRADER_JUDGE_MODEL:-claude-sonnet-5-5}
+      AUTOGRADER_EFFORT: ${AUTOGRADER_EFFORT:-}
       AUTOGRADER_API_TOKEN: ${AUTOGRADER_API_TOKEN:-}
+      AUTOGRADER_REQUIRE_LOGIN: ${AUTOGRADER_REQUIRE_LOGIN:-1}
+      AUTOGRADER_DEMO_SEED: ${AUTOGRADER_DEMO_SEED:-1}
+      AUTOGRADER_SIGNUP_CODE: ${AUTOGRADER_SIGNUP_CODE:-}
+      AUTOGRADER_INSTRUCTOR_EMAIL: ${AUTOGRADER_INSTRUCTOR_EMAIL:-}
+      AUTOGRADER_INSTRUCTOR_PASSWORD: ${AUTOGRADER_INSTRUCTOR_PASSWORD:-}
+      AUTOGRADER_SESSION_TTL_HOURS: ${AUTOGRADER_SESSION_TTL_HOURS:-72}
+      AUTOGRADER_COOKIE_SECURE: ${AUTOGRADER_COOKIE_SECURE:-0}
       AUTOGRADER_ENABLE_DOCKER: "0"
       AUTOGRADER_MAX_CONCURRENT_JOBS: ${AUTOGRADER_MAX_CONCURRENT_JOBS:-2}
+      AUTOGRADER_MAX_STORED_JOBS: ${AUTOGRADER_MAX_STORED_JOBS:-200}
+      AUTOGRADER_LOG_LEVEL: ${AUTOGRADER_LOG_LEVEL:-INFO}
     volumes:
-      - autograder-data:/data
+      - autograder-data:/data   # shared by all replicas: reports + result cache
     expose:
       - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    stop_grace_period: 30s      # uvicorn closes SSE streams after 10 s, then marks unfinished jobs failed
     restart: unless-stopped
-    networks: [backend]
+    networks: [edge, data]      # edge: reached by nginx + outbound to GitHub; data: talks to postgres
 
-  # Reverse proxy: rate-limits submissions, disables buffering for SSE, gzips reports.
+  # Load balancer / reverse proxy: sticky routing for live grading streams, round-robin and
+  # least-connections upstreams for the load-balancer lab, rate limits, SSE passthrough, gzip.
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.27.5-alpine
     ports:
-      - "8080:80"
+      - "${AUTOGRADER_BIND:-127.0.0.1}:${AUTOGRADER_PORT:-8080}:80"
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
-    networks: [backend]
+    networks: [edge]
 
 volumes:
   autograder-data:
+  pgdata:
 
 networks:
-  backend:
+  edge:
+  data:
+    internal: true              # no route to the internet: the database is isolated

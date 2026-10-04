@@ -9,7 +9,7 @@ import time
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
-from typing import AsyncIterator, Literal
+from typing import AsyncIterator, Callable, Literal
 
 from . import config
 from .models import GradeReport, GradeRequest
@@ -109,6 +109,22 @@ class JobManager:
         self._sem = asyncio.Semaphore(config.MAX_CONCURRENT_JOBS)
         self._tasks: set[asyncio.Task] = set()
         self._waiting = 0
+        self._listeners: list[Callable[[Job], None]] = []
+
+    def add_listener(self, fn: Callable[[Job], None]) -> None:
+        """Register a blocking callback (run in a worker thread) for running/done/failed transitions.
+
+        Called *before* the terminal SSE event is published, so a client that reacts to `job_done`
+        already sees the persisted result (e.g. on its dashboard).
+        """
+        self._listeners.append(fn)
+
+    async def _notify(self, job: Job) -> None:
+        for fn in self._listeners:
+            try:
+                await asyncio.to_thread(fn, job)
+            except Exception:  # noqa: BLE001 - persistence problems must not fail the grading job
+                log.exception("job listener failed for %s", job.id)
 
     def get(self, job_id: str) -> Job | None:
         return self.jobs.get(job_id)
@@ -146,11 +162,13 @@ class JobManager:
                 acquired = True
                 job.status = "running"
                 job.publish("job_started")
+                await self._notify(job)
                 try:
                     job.report = await run_pipeline(job)
                     job.status = "done"
                     METRICS.incr("jobs_done")
                     METRICS.observe("job_total", job.report.total_ms)
+                    await self._notify(job)
                     job.publish(
                         "job_done",
                         final_score=job.report.verdict.final_score,
@@ -163,6 +181,7 @@ class JobManager:
                     job.status = "failed"
                     job.error = str(exc) or exc.__class__.__name__
                     METRICS.incr("jobs_failed")
+                    await self._notify(job)
                     job.publish("job_failed", error=job.error)
         finally:
             if not acquired:

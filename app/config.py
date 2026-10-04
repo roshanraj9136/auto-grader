@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
+import socket
 import subprocess
 import tempfile
 from functools import lru_cache
@@ -36,6 +38,29 @@ MAX_STORED_JOBS = int(os.getenv("AUTOGRADER_MAX_STORED_JOBS", "200"))
 WORK_DIR = Path(os.getenv("AUTOGRADER_WORK_DIR", str(Path(tempfile.gettempdir()) / "autograder")))
 CACHE_DIR = WORK_DIR / "cache"
 CLONE_TIMEOUT_S = int(os.getenv("AUTOGRADER_CLONE_TIMEOUT", "120"))
+
+# ---- Replica identity ------------------------------------------------------
+# Several API replicas can share one /data volume behind the load balancer. Each replica keeps its
+# in-flight clones in its own sub-directory, so one replica's startup purge never deletes another's work.
+# Containers run the app as PID 1, so the container hostname is unique; on a dev machine two processes
+# share a hostname, so the PID is appended.
+_host = re.sub(r"[^A-Za-z0-9_.-]", "-", socket.gethostname())[:50] or "local"
+INSTANCE_ID = (os.getenv("AUTOGRADER_INSTANCE_ID", "").strip()[:63]
+               or (_host if os.getpid() == 1 else f"{_host}-{os.getpid()}"))
+JOBS_DIR = WORK_DIR / "jobs" / INSTANCE_ID
+HEARTBEAT_S = 20          # replicas refresh instances.last_seen this often
+INSTANCE_DEAD_S = 90      # ...and are presumed dead (their unfinished submissions failed) after this
+
+# ---- Learning platform (accounts, assignments, dashboards, labs) ------------
+# sqlite:///path (default, zero setup) or postgresql://user:pass@host:5432/db (docker compose).
+DATABASE_URL = os.getenv("AUTOGRADER_DATABASE_URL", "").strip() or f"sqlite:///{(WORK_DIR / 'autograder.db').as_posix()}"
+REQUIRE_LOGIN = os.getenv("AUTOGRADER_REQUIRE_LOGIN", "1") == "1"   # grading needs a session or the API token
+DEMO_SEED = os.getenv("AUTOGRADER_DEMO_SEED", "1") == "1"           # demo accounts + sample assignments on first run
+SESSION_TTL_HOURS = int(os.getenv("AUTOGRADER_SESSION_TTL_HOURS", "72"))
+COOKIE_SECURE = os.getenv("AUTOGRADER_COOKIE_SECURE", "0") == "1"   # set to 1 behind HTTPS
+SIGNUP_CODE = os.getenv("AUTOGRADER_SIGNUP_CODE", "").strip()        # optional class join code for self sign-up
+INSTRUCTOR_EMAIL = os.getenv("AUTOGRADER_INSTRUCTOR_EMAIL", "").strip().lower()
+INSTRUCTOR_PASSWORD = os.getenv("AUTOGRADER_INSTRUCTOR_PASSWORD", "")
 
 # ---- Context budgets (characters, ~4 chars/token) ---------------------------
 SHARED_CONTEXT_CHARS = 18_000   # identical for all specialists -> prompt-cached

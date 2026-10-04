@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Lab preview</title>
+<script>
+/* Frontend-lab sandbox. Loaded in <iframe sandbox="allow-scripts"> (opaque origin: no access to the
+   app's cookies, storage or DOM). The parent posts {type:"render", html, css, js}; we rewrite this
+   document with the student's code plus this same boot script, so checks keep working after re-render. */
+function boot() {
+  var send = function (m) { parent.postMessage(m, "*"); };
+  if (!console.__agWrapped) ["log", "info", "warn", "error"].forEach(function (lvl) {
+    console.__agWrapped = true; // document.open() keeps the same console object: wrap only once
+    var orig = console[lvl];
+    console[lvl] = function () {
+      var text = Array.prototype.map.call(arguments, function (a) {
+        try { return typeof a === "string" ? a : a instanceof Element ? "<" + a.tagName.toLowerCase() + (a.id ? "#" + a.id : "") + ">" : JSON.stringify(a); }
+        catch (e) { return String(a); }
+      }).join(" ");
+      send({ type: "log", level: lvl, text: text });
+      orig.apply(console, arguments);
+    };
+  });
+  window.addEventListener("error", function (e) { send({ type: "log", level: "error", text: e.message + (e.lineno ? " (line " + e.lineno + ")" : "") }); });
+  var hasLabel = function (el) {
+    return (el.labels && el.labels.length > 0) || el.getAttribute("aria-label") || el.getAttribute("aria-labelledby");
+  };
+  var checks = {
+    heading: function () {
+      var hs = Array.prototype.slice.call(document.querySelectorAll("h1"));
+      if (!hs.length) return [false, "no <h1> found"];
+      return hs.some(function (h) { return /hello/i.test(h.textContent); }) ? [true, "ok"] : [false, "the <h1> does not contain 'Hello'"];
+    },
+    counter: function () {
+      var b = document.querySelector("#inc"), c = document.querySelector("#count");
+      if (!b || !c) return [false, "need a #inc button and a #count element"];
+      var before = parseInt(c.textContent, 10) || 0;
+      b.click();
+      var after = parseInt(c.textContent, 10);
+      return after === before + 1 ? [true, "ok"] : [false, "clicking #inc changed #count from " + before + " to " + c.textContent];
+    },
+    flex: function () {
+      var r = document.querySelector(".row");
+      if (!r) return [false, "no element with class .row"];
+      var d = getComputedStyle(r).display;
+      return d === "flex" || d === "inline-flex" ? [true, "ok"] : [false, ".row has display: " + d];
+    },
+    a11y: function () {
+      var imgs = Array.prototype.slice.call(document.querySelectorAll("img"));
+      var inputs = Array.prototype.slice.call(document.querySelectorAll("input:not([type=hidden]), select, textarea"));
+      if (!imgs.length || !inputs.length) return [false, "keep at least one <img> and one <input>"];
+      var noAlt = imgs.filter(function (i) { return !(i.getAttribute("alt") || "").trim(); }).length;
+      var noLabel = inputs.filter(function (i) { return !hasLabel(i); }).length;
+      if (noAlt) return [false, noAlt + " image(s) without alt text"];
+      if (noLabel) return [false, noLabel + " input(s) without a label"];
+      return [true, "ok"];
+    }
+  };
+  window.addEventListener("message", function (e) {
+    if (e.source !== parent || !e.data || typeof e.data !== "object") return;
+    var m = e.data;
+    if (m.type === "render") {
+      var js = String(m.js || "").replace(/<\/script/gi, "<\\/script");
+      var doc = "<!doctype html><html><head><meta charset='utf-8'><style>" + String(m.css || "").replace(/<\/style/gi, "<\\/style") +
+        "</style><script>(" + boot.toString() + ")();<\/script></head><body>" + String(m.html || "") +
+        "<script>try{" + js + "\n}catch(e){console.error(e.message)}<\/script></body></html>";
+      document.open();
+      document.write(doc);
+      document.close();
+    } else if (m.type === "check") {
+      var fn = checks[m.task], res;
+      try { res = fn ? fn() : [false, "unknown task"]; } catch (err) { res = [false, "check crashed: " + err.message]; }
+      send({ type: "result", task: m.task, ok: res[0], msg: res[1] });
+    }
+  });
+  send({ type: "ready" });
+}
+boot();
+</script></head><body></body></html>

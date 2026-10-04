@@ -133,7 +133,7 @@ These figures use the real clone, index, lint, evidence and judge logic. LLM lat
 
 - **Parallelism vs. prompt-cache reuse.** Anthropic caches become readable only after the first request starts responding. Five *simultaneous* calls therefore each write the cache, and the reuse shows up on re-grades within the TTL. Staggering agents behind a warm-up call would lower cost but add roughly one TTFT to the critical path. Latency was chosen.
 - **Judge sees reports, not code.** This makes the judge fast and cheap. It cannot find new issues, which is acceptable because its role is calibration and consistency.
-- **Single API process.** Job state and SSE fan-out live in memory. This is simple and fast, but it is a scaling limit (see §9).
+- **Single API process per replica.** Job state and SSE fan-out live in memory. This is simple and fast. Replicas scale out behind sticky routing; see §9.
 
 ## 7. Reliability
 
@@ -151,13 +151,39 @@ These figures use the real clone, index, lint, evidence and judge logic. LLM lat
 - **Known risk.** `docker build` executes arbitrary RUN steps with network access. The sandbox is therefore **opt-in** (`docker-compose.sandbox.yml`) and intended for a dedicated VM or rootless Docker.
 - **Access.** The optional bearer token (`AUTOGRADER_API_TOKEN`) is compared in constant time. Nginx rate-limits submissions to 6/min/IP. Without a token the API is open, so set one before exposing it beyond localhost.
 
-## 9. Scaling roadmap
+## 9. Scaling and the v2 platform
 
-The current deployment is one API process behind Nginx, which suits a class of a few hundred students. The path to horizontal scale:
+v2 runs **N stateless API replicas behind Nginx** (docker compose, 3 by default, `--scale api=N`):
 
-1. Move job state and the event bus to **Redis** (streams or pub/sub) and run pipelines in **worker processes** fed by a queue. The API then becomes stateless and can run N replicas behind the load balancer.
-2. Store reports in object storage (S3/MinIO) and job history in PostgreSQL.
-3. Run Docker builds on dedicated BuildKit workers or Kubernetes Jobs with gVisor/Kata isolation, with layer caches shared per course.
+- **Shared state lives in PostgreSQL**: users, sessions, assignments, submissions (scores, dimension scores, learning path), lab progress and replica heartbeats. Reports and the result cache sit on a shared volume, so any replica can serve any page or report.
+- **Live state stays in memory.** A grading job's events and SSE stream live in the replica that accepted it. Nginx therefore routes with `hash $lb_key` on the session cookie (sticky). If a stream is ever unavailable (replica restarted, sticky key changed), the UI falls back to polling the job's database row, so it never hangs.
+- **Job listeners.** `JobManager` notifies a listener on every running/done/failed transition *before* publishing the terminal SSE event. That listener mirrors the state into the `submissions` table, so a dashboard that refreshes on `job_done` already sees the grade.
+- **Failure handling.**
+  - Every replica writes a heartbeat to `instances` every 20 s.
+  - Any replica fails the unfinished submissions of replicas that stopped heart-beating (crash, scale-down, recreated container), deletes their orphaned clone directories, and repairs its own rows if a listener update was lost.
+  - On shutdown, a replica fails its own in-flight submissions.
+- **Per-replica isolation on the shared volume.** In-flight clones go to `jobs/<instance-id>/`. Artifacts use unique temp files plus atomic rename.
+- **Database pool.** At most 10 connections per replica. Idle connections are pinged before reuse, and DDL plus seeding is serialised with a Postgres advisory lock so replicas can start together.
+
+Next steps at course scale:
+
+1. Move job events to **Redis** streams and run pipelines in **worker processes** fed by a queue. Live streams then no longer need sticky routing.
+2. Store reports in object storage (S3/MinIO).
+3. Run Docker builds on dedicated BuildKit workers or Kubernetes Jobs with gVisor/Kata isolation.
 4. Grade at the agent level across workers, retrying a single dimension without re-running the whole job.
 
-This matches the proposed next version of the course Autograder, a platform that **teaches full-stack development**. Containerised backends reached through web and mobile apps would let students practise load balancers, networks and databases in one place, and AutoGrader's report (with its *learning path* section) becomes the feedback loop.
+## 10. Learning platform layer
+
+`app/platform/` sits on top of the grading engine without changing its contracts:
+
+| Module | Responsibility |
+|---|---|
+| `db.py` | Portable SQL over DB-API: SQLite (default) or PostgreSQL. `?` placeholders are rewritten for psycopg; there is no ORM |
+| `security.py` | scrypt password hashes, SHA-256-stored session tokens, HttpOnly cookies, role dependencies |
+| `api.py` | Auth, assignments (rubric weights + brief become the grading rubric), dashboards, leaderboard (XP), instructor analytics, CSV gradebook (formula-injection safe) |
+| `labs.py` | Lab catalogue + progress. The SQL lab is server-verified against reference answers on a sandboxed in-memory DB. The Dockerfile lab reuses the DevOps linter. The load-balancer and network endpoints expose replica identity, proxy headers and `Server-Timing` |
+| `seed.py` | Optional demo accounts and four sample assignments (frontend, backend + DB, containers/networks/LB, full-stack) |
+
+Only **server-verified** lab tasks earn XP, so the leaderboard cannot be inflated with forged browser calls. Self-checked tasks still count as progress. The labs are deliberately *not* simulations: the load-balancer lab sends real requests through the platform's own Nginx to its replicas, and the network lab breaks a request down with the Resource Timing API plus the backend's `Server-Timing` header.
+
+This matches the proposed next version of the course Autograder: a platform that **teaches full-stack development**, with containerised backends reached through web and mobile (PWA) clients, and AutoGrader's report (with its *learning path* section) as the feedback loop.
