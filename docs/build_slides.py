@@ -464,8 +464,8 @@ def s_report():
         ("Learning path", "what to learn next: DBs, LB, CI, security"),
         ("Agent findings", "severity · file path · concrete fix"),
         ("Docker sandbox", "lint, build time, image size, run logs"),
-        ("Latency section", "waterfall, critical path, speed-up, tokens"),
-        ("Formats", "HTML (accessible) · Markdown · JSON API"),
+        ("Grouped fixes", "one issue in 5 files = one item, with every file listed"),
+        ("Formats", "in-app feedback page · printable HTML · Markdown · JSON"),
     ]
     for i, (h, d) in enumerate(sections):
         col, r = i % 2, i // 2
@@ -481,10 +481,12 @@ def s_report():
         ("Thin test suite", "test/source ratio 0.09"),
         ("Learning path", "layered backend, OWASP basics, Nginx load balancing"),
     ], size=13, bullet_color=CYAN, gap=5)
-    text(s, 0.6, 6.55, 12.3, 0.4, "Secrets are redacted before any content reaches the LLM or the report.", size=12, color=MUTED)
-    notes(s, "The report explains every point. Each finding has a severity, a file path and a fix. On the right are real findings "
-             "from the sample repository, including a hard-coded database credential, root containers and debug mode. "
-             "The learning path turns the grade into a lesson.")
+    text(s, 0.6, 6.55, 12.3, 0.4, "Students see plain-language feedback only. Engine latency and metrics live on the instructor's Platform health page.",
+         size=12, color=MUTED)
+    notes(s, "The report explains every point in plain language. Each finding has a severity, the files it appears in, and a fix. "
+             "On the right are real findings from the sample repository, including a hard-coded database credential and root "
+             "containers. The learning path turns the grade into a lesson. Technical details such as latency stay on the "
+             "instructor's Platform health page, so students are not distracted by them.")
 
 
 def s_security():

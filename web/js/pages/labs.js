@@ -1,5 +1,5 @@
 // Hands-on labs: Frontend, Databases, Load balancers, Networks, Containers.
-import { $, api, emptyState, esc, fmtMs, progressBar, state, toast } from "../core.js";
+import { $, LAB_ICON, api, emptyState, esc, fmtMs, icon, pageHeader, progressBar, state, toast } from "../core.js";
 
 let catalog = null;
 
@@ -15,12 +15,12 @@ function isDone(lab, task) {
 function tasksPanel(lab) {
   const l = catalog.labs.find((x) => x.id === lab);
   const done = (catalog.progress[lab] || []).length;
-  return `<div class="panel tasks" id="tasks-panel"><div class="panel-h"><h2>Tasks</h2><span class="hint">${done}/${l.tasks.length} · server-checked tasks earn ${catalog.xp_per_task} XP</span></div>
+  return `<div class="panel tasks" id="tasks-panel"><div class="panel-h"><h2>${icon("checkCircle")} Your tasks</h2><span class="hint">${done} of ${l.tasks.length} done</span></div>
     ${progressBar(done, l.tasks.length, "Lab progress")}
     <ul class="task-list">${l.tasks.map((t) => `<li class="${isDone(lab, t.id) ? "done" : ""}" data-task="${t.id}">
-      <span class="tick" aria-hidden="true">${isDone(lab, t.id) ? "✓" : "○"}</span><span class="grow">${esc(t.title)}</span>
-      <span class="chip" title="${t.verify === "server" ? "checked by the server" : "checked in your browser"}">${t.verify === "server" ? "server-checked" : "self-checked"}</span></li>`).join("")}</ul>
-    ${state.user ? "" : `<p class="hint"><a href="/login?next=${encodeURIComponent(location.pathname)}">Sign in</a> to save progress and earn XP.</p>`}</div>`;
+      <span class="tick" aria-hidden="true">${icon("check")}</span><span class="grow">${esc(t.title)}</span>
+      ${t.xp ? `<span class="chip track" title="Checked by the server">+${t.xp} XP</span>` : ""}</li>`).join("")}</ul>
+    ${state.user ? "" : `<p class="hint" style="margin-top:12px"><a href="/login?next=${encodeURIComponent(location.pathname)}">Sign in</a> to save your progress and earn XP.</p>`}</div>`;
 }
 
 function refreshTasks(lab) {
@@ -36,27 +36,25 @@ async function complete(lab, task, { serverRecorded = false } = {}) {
     if (!serverRecorded) await api("/api/labs/progress", { method: "POST", body: { lab, task } });
     catalog.progress[lab] = [...(catalog.progress[lab] || []), task];
     refreshTasks(lab);
-    toast(xp ? `Task verified by the server: +${xp} XP` : "Task complete", "ok");
+    toast(xp ? `Task complete! +${xp} XP` : "Task complete!", "ok");
   } catch (e) { toast(e.message, "error"); }
 }
 
 function header(l, extra = "") {
-  return `<header class="page-h"><div><p class="kicker"><a href="/labs">Labs</a> / ${esc(l.track)}</p><h1>${esc(l.title)}</h1>
-    <p class="hint">${esc(l.summary)}</p></div>${extra}</header>`;
+  return pageHeader(`<a href="/labs">Labs</a> / ${esc(l.track)}`, esc(l.title), esc(l.summary), extra);
 }
 
 export async function index(view) {
   await loadCatalog();
   const total = catalog.total_tasks, doneN = catalog.completed;
-  view.innerHTML = `<header class="page-h"><div><p class="kicker">Practice</p><h1>Labs: the whole stack in one place</h1>
-    <p class="hint">Each lab runs against this platform's real infrastructure: its database, its Nginx load balancer, its API replicas and its Dockerfile linter.</p></div>
-    ${state.user ? `<div class="stat acc"><span class="stat-l">Your progress</span><b class="stat-v">${doneN}<small>/${total}</small></b>${progressBar(doneN, total, "All labs")}</div>` : ""}</header>
+  view.innerHTML = `${pageHeader("Practice", "Labs", "Learn each part of the stack hands-on: frontend, databases, load balancers, networks and Docker. Everything runs in your browser.",
+      state.user ? `<div class="best-badge"><span class="stat-ico" style="width:44px;height:44px">${icon("flask")}</span><div><span>Your progress</span><b>${doneN} of ${total} tasks</b></div></div>` : "")}
     <section class="cards labs">${catalog.labs.map((l) => {
       const d = (catalog.progress[l.id] || []).length;
-      return `<article class="card lab-card"><div class="lab-ico" aria-hidden="true">${esc(l.icon)}</div>
+      return `<article class="card lab-card"><div class="lab-ico">${icon(LAB_ICON[l.id] || "flask")}</div>
         <h2><a href="/labs/${l.id}">${esc(l.title)}</a></h2><p>${esc(l.summary)}</p>
-        <ul class="mini-tasks">${l.tasks.map((t) => `<li class="${isDone(l.id, t.id) ? "done" : ""}">${isDone(l.id, t.id) ? "✓" : "○"} ${esc(t.title)}</li>`).join("")}</ul>
-        <div class="card-foot">${progressBar(d, l.tasks.length, `${l.title} progress`)}<a class="btn sm" href="/labs/${l.id}">${d ? "Continue" : "Start"}</a></div></article>`;
+        <ul class="mini-tasks">${l.tasks.map((t) => `<li class="${isDone(l.id, t.id) ? "done" : ""}">${icon(isDone(l.id, t.id) ? "checkCircle" : "target")} ${esc(t.title)}</li>`).join("")}</ul>
+        <div class="card-foot">${progressBar(d, l.tasks.length, `${l.title} progress`)}<a class="btn sm" href="/labs/${l.id}">${d === l.tasks.length ? "Review" : d ? "Continue" : "Start"}</a></div></article>`;
     }).join("")}</section>`;
 }
 
@@ -97,8 +95,8 @@ console.log('script loaded', btn);`,
 
 function frontendLab(view, l) {
   const saved = JSON.parse(localStorage.getItem("ag-fe-lab") || "null") || FE_STARTER;
-  view.innerHTML = `${header(l, `<div class="row-btns"><button class="ghost" id="fe-reset" type="button">Reset code</button>
-    <button class="btn" id="fe-check" type="button">Check all tasks</button></div>`)}
+  view.innerHTML = `${header(l, `<button class="ghost" id="fe-reset" type="button">${icon("refresh")} Reset code</button>
+    <button class="btn" id="fe-check" type="button">${icon("checkCircle")} Check my work</button>`)}
   <section class="fe-grid">
     <div class="panel editor">
       <div class="tabs" role="tablist">${["html", "css", "js"].map((t, i) =>
@@ -106,10 +104,10 @@ function frontendLab(view, l) {
       ${["html", "css", "js"].map((t, i) => `<textarea class="code" id="fe-${t}" spellcheck="false" aria-label="${t.toUpperCase()} editor"${i ? " hidden" : ""}>${esc(saved[t])}</textarea>`).join("")}
       <div class="console" id="fe-console" aria-live="polite" aria-label="Console output"></div>
     </div>
-    <div class="panel preview"><div class="panel-h"><h2>Live preview</h2><span class="hint">sandboxed iframe</span></div>
+    <div class="panel preview-frame"><div class="panel-h"><h2>${icon("globe")} Live preview</h2><span class="hint">updates as you type</span></div>
       <iframe id="fe-frame" src="/sandbox.html" sandbox="allow-scripts" title="Live preview of your page"></iframe></div>
   </section>
-  <section class="grid-2-1"><div class="panel"><h2>Concepts</h2>
+  <section class="grid-2-1"><div class="panel"><h2>${icon("bulb")} Learn the concepts</h2>
     <ul class="concepts"><li><b>DOM</b>: the browser turns HTML into a tree of nodes; JS reads and changes it (<code>querySelector</code>, <code>textContent</code>).</li>
     <li><b>Events</b>: <code>addEventListener('click', …)</code> runs code when the user interacts.</li>
     <li><b>Flexbox</b>: <code>display:flex</code> lays children out in a row; <code>gap</code>, <code>justify-content</code>, <code>align-items</code> control spacing.</li>
@@ -208,7 +206,7 @@ async function databaseLab(view, l) {
   view.innerHTML = `${header(l)}
   <section class="grid-2-1">
     <div class="panel">
-      <div class="panel-h"><h2>Query editor</h2><span class="hint">Ctrl + Enter to run</span></div>
+      <div class="panel-h"><h2>${icon("database")} Query editor</h2><span class="hint">Ctrl + Enter to run</span></div>
       <div class="field"><label for="sql-task">Task to check <span class="hint">(optional)</span></label>
         <select id="sql-task"><option value="">Free play: no check</option>${Object.entries(meta.tasks).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
       <textarea id="sql" class="code" rows="8" spellcheck="false" aria-label="SQL query">SELECT * FROM courses;</textarea>
@@ -219,10 +217,10 @@ async function databaseLab(view, l) {
       <div id="sql-out"></div>
     </div>
     <div>
-      <div class="panel"><h2>Schema</h2><pre class="schema">${esc(meta.schema)}</pre>
+      <div class="panel"><h2>${icon("layers")} Tables</h2><pre class="schema">${esc(meta.schema)}</pre>
         <p class="hint">240 students · 10 courses · ~1,100 enrollments. Every query runs on a fresh, read-only, in-memory copy, with a 0.5 s limit.</p></div>
       ${tasksPanel("database")}
-      <div class="panel"><h2>Concepts</h2><ul class="concepts">
+      <div class="panel"><h2>${icon("bulb")} Learn the concepts</h2><ul class="concepts">
         <li><b>JOIN</b> combines rows from tables using keys (<code>enrollments.student_id → students.id</code>).</li>
         <li><b>GROUP BY</b> collapses rows into groups; aggregates like <code>COUNT</code>, <code>AVG</code> summarise them.</li>
         <li><b>Index</b>: a B-tree that turns a full table <i>SCAN</i> into a <i>SEARCH</i>: O(log n) instead of O(n).</li>
@@ -240,11 +238,11 @@ async function databaseLab(view, l) {
         <tbody>${r.rows.map((row) => `<tr>${row.map((v) => `<td>${v == null ? '<span class="hint">NULL</span>' : esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}
         ${r.plan.length ? `<h3>Query plan</h3><ul class="plan">${r.plan.map((p) => `<li class="${/SEARCH|INDEX/.test(p) ? "good" : /SCAN/.test(p) ? "warn" : ""}">${esc(p)}</li>`).join("")}</ul>` : ""}`;
       if (r.check) {
-        $("#sql-check").innerHTML = `<p class="check-msg ${r.check.passed ? "ok" : "bad"}">${r.check.passed ? "✓" : "✖"} ${esc(r.check.message)}</p>`;
+        $("#sql-check").innerHTML = `<p class="check-msg ${r.check.passed ? "ok" : "bad"}">${icon(r.check.passed ? "checkCircle" : "alert")} ${esc(r.check.message)}</p>`;
         if (r.check.passed) await complete("database", task, { serverRecorded: true }); // the server already recorded it
       }
     } catch (e) {
-      $("#sql-out").innerHTML = `<p class="error">✖ ${esc(e.message)}</p>`;
+      $("#sql-out").innerHTML = `<p class="error">${icon("alert")} ${esc(e.message)}</p>`;
     } finally { $("#sql-run").disabled = false; }
   };
   $("#sql-run").addEventListener("click", run);
@@ -273,7 +271,7 @@ function lbLab(view, l) {
   <div id="lb-banner"></div>
   <section class="grid-2-1">
     <div class="panel">
-      <div class="panel-h"><h2>Traffic generator</h2></div>
+      <div class="panel-h"><h2>${icon("zap")} Send traffic</h2></div>
       <div class="grid3">
         <div class="field"><label for="lb-algo">Algorithm (Nginx upstream)</label><select id="lb-algo">
           <option value="rr">Round-robin</option><option value="least">Least connections</option>
@@ -288,7 +286,7 @@ function lbLab(view, l) {
       <div id="lb-lat" class="hint"></div>
     </div>
     <div>${tasksPanel("loadbalancer")}
-      <div class="panel"><h2>How it works</h2><ul class="concepts">
+      <div class="panel"><h2>${icon("bulb")} How it works</h2><ul class="concepts">
         <li><b>Round-robin</b>: each new request goes to the next replica in turn. Even spread, but blind to load.</li>
         <li><b>Least connections</b>: send to the replica with the fewest in-flight requests. Better when some requests are slow.</li>
         <li><b>Sticky / hash</b>: the same client (session cookie) always lands on the same replica, needed when state lives in memory (here: live grading streams).</li>
@@ -340,9 +338,9 @@ function lbLab(view, l) {
       <div class="hb-t"><span style="width:${(c / results.length) * 100}%;background:${colors[inst]}"></span></div><span class="hb-v">${c} (${Math.round((c / results.length) * 100)}%)</span></div>`).join("");
     const lat = results.map((r) => r.ms).sort((a, b) => a - b);
     const q = (p) => lat[Math.min(lat.length - 1, Math.floor(p * lat.length))];
-    $("#lb-lat").textContent = lat.length ? `${results.length} responses from ${entries.length} replica(s) · p50 ${fmtMs(q(0.5))} · p95 ${fmtMs(q(0.95))} · max ${fmtMs(lat[lat.length - 1])}` : "";
-    $("#lb-banner").innerHTML = behindProxy ? "" : `<div class="banner warn">You are talking straight to a single API process (no Nginx in front), so every request hits the same replica.
-      Run <code>docker compose up --build</code> and open <code>http://localhost:8080</code> to get Nginx + 3 replicas.</div>`;
+    $("#lb-lat").textContent = lat.length ? `${results.length} responses from ${entries.length} server${entries.length > 1 ? "s" : ""}. Typical response ${fmtMs(q(0.5))}, slowest ${fmtMs(lat[lat.length - 1])}.` : "";
+    $("#lb-banner").innerHTML = entries.length > 1 ? "" : `<div class="banner">${icon("bulb")}<span>Every request was answered by the same server, because this deployment runs one copy of the app.
+      To see traffic spread across 3 servers, run the project locally with <code>docker compose up</code> and open <code>http://localhost:8080</code>.</span></div>`;
     if (results.length >= 30) await complete("loadbalancer", "burst");
     if (entries.length >= 2) await complete("loadbalancer", "replicas");
     used.add(algo);
@@ -357,16 +355,16 @@ function lbLab(view, l) {
 function networkLab(view, l) {
   view.innerHTML = `${header(l)}
   <section class="grid-1-1">
-    <div class="panel"><div class="panel-h"><h2>Round-trip time</h2><button class="btn sm" id="rtt-go" type="button">Measure 20 requests</button></div>
+    <div class="panel"><div class="panel-h"><h2>${icon("clock")} Round-trip time</h2><button class="btn sm" id="rtt-go" type="button">Measure 20 requests</button></div>
       <div id="rtt-out"><p class="hint">Sends 20 sequential requests and measures each round trip with <code>performance.now()</code>.</p></div></div>
-    <div class="panel"><div class="panel-h"><h2>Request path</h2><button class="btn sm" id="path-go" type="button">Trace my request</button></div>
+    <div class="panel"><div class="panel-h"><h2>${icon("network")} Request path</h2><button class="btn sm" id="path-go" type="button">Trace my request</button></div>
       <div id="path-out"><p class="hint">Shows the hops your request takes and the headers the backend actually receives.</p></div></div>
   </section>
   <section class="grid-2-1">
-    <div class="panel"><div class="panel-h"><h2>Timing breakdown</h2><button class="btn sm" id="tim-go" type="button">Break down a request</button></div>
+    <div class="panel"><div class="panel-h"><h2>${icon("activity")} Timing breakdown</h2><button class="btn sm" id="tim-go" type="button">Break down a request</button></div>
       <div id="tim-out"><p class="hint">Uses the Resource Timing API and the backend's <code>Server-Timing</code> header.</p></div></div>
     <div>${tasksPanel("network")}
-      <div class="panel"><h2>Concepts</h2><ul class="concepts">
+      <div class="panel"><h2>${icon("bulb")} Learn the concepts</h2><ul class="concepts">
         <li><b>RTT</b>: time for a request to reach the server and the response to come back. <b>Jitter</b> = variation between RTTs.</li>
         <li><b>Reverse proxy</b>: Nginx terminates your connection and opens its own to a replica; <code>X-Forwarded-For</code> keeps your IP.</li>
         <li><b>Keep-alive</b>: reused TCP connections skip DNS + TCP handshake, which is why those bars are often 0.</li>
@@ -443,13 +441,13 @@ function dockerLab(view, l) {
   const saved = localStorage.getItem("ag-docker-lab") || DOCKER_STARTER;
   view.innerHTML = `${header(l)}
   <section class="grid-2-1">
-    <div class="panel"><div class="panel-h"><h2>Dockerfile</h2><button class="ghost sm" id="dk-reset" type="button">Reset</button></div>
+    <div class="panel"><div class="panel-h"><h2>${icon("box")} Your Dockerfile</h2><button class="ghost sm" id="dk-reset" type="button">${icon("refresh")} Reset</button></div>
       <textarea id="dk" class="code" rows="16" spellcheck="false" aria-label="Dockerfile editor">${esc(saved)}</textarea>
       <div class="row-btns"><button class="btn" id="dk-go" type="button">Lint Dockerfile</button>
         <label class="check"><input type="checkbox" id="dk-ignore" checked /> My repo has a <code>.dockerignore</code></label></div>
       <div id="dk-out"></div></div>
     <div>${tasksPanel("docker")}
-      <div class="panel"><h2>Concepts</h2><ul class="concepts">
+      <div class="panel"><h2>${icon("bulb")} Learn the concepts</h2><ul class="concepts">
         <li><b>Pin base images</b> (<code>node:20.11-alpine</code>) so builds are reproducible.</li>
         <li><b>Layer cache</b>: copy <code>package*.json</code> and install deps <i>before</i> <code>COPY . .</code>.</li>
         <li><b>Multi-stage</b>: build in one stage, copy only the output into a slim runtime image.</li>
@@ -463,9 +461,9 @@ function dockerLab(view, l) {
       const r = await api("/api/lab/dockerfile", { method: "POST", body: { dockerfile_text: $("#dk").value, has_dockerignore: $("#dk-ignore").checked } });
       $("#dk-out").innerHTML = `<div class="dk-head"><div class="ring sm ${r.score >= 85 ? "g-a" : r.score >= 60 ? "g-b" : r.score >= 40 ? "g-c" : "g-f"}" style="--p:${r.score}%;--size:72px" role="img" aria-label="Lint score ${r.score}"><span>${r.score}</span></div>
         <div><b>${r.findings.length} finding(s)</b> · ${r.instructions} instructions · ${r.stages} stage(s)<div class="chips">${Object.entries(r.checks).map(([k, c]) =>
-          `<span class="chip ${c.passed ? "ok" : "warn"}">${c.passed ? "✓" : "○"} ${esc(k)}: ${esc(c.detail)}</span>`).join("")}</div></div></div>
+          `<span class="chip ${c.passed ? "ok" : "warn"}">${icon(c.passed ? "checkCircle" : "target")} ${esc(c.detail)}</span>`).join("")}</div></div></div>
         ${r.findings.length ? `<ul class="findings">${r.findings.map((f) => `<li class="sev-${f.severity}"><span class="sev">${sevIcon[f.severity] || ""} ${esc(f.severity)}</span>
-          <div><b>${esc(f.title)}</b><p>${esc(f.detail)}</p><p class="fix">Fix: ${esc(f.recommendation)}</p></div></li>`).join("")}</ul>` : `<p class="check-msg ok">✓ No findings: production-grade Dockerfile.</p>`}`;
+          <div><b>${esc(f.title)}</b><p>${esc(f.detail)}</p><p class="fix">${icon("bulb")} ${esc(f.recommendation)}</p></div></li>`).join("")}</ul>` : `<p class="check-msg ok">${icon("checkCircle")} No findings: production-grade Dockerfile.</p>`}`;
       for (const [k, c] of Object.entries(r.checks)) if (c.passed) await complete("docker", k, { serverRecorded: true });
     } catch (e) { $("#dk-out").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
   });

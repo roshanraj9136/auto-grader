@@ -4,33 +4,33 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>AutoGrader+ · learn full-stack development</title>
-  <meta name="description" content="AutoGrader+: a full-stack learning platform. Multi-agent AI grading of GitHub projects, assignments, dashboards and hands-on labs for frontend, databases, networks, load balancers and containers." />
-  <meta name="theme-color" content="#0b1020" />
+  <meta name="description" content="AutoGrader+: submit your GitHub project and get clear, friendly feedback in about a minute, then practise frontend, databases, networks and Docker in hands-on labs." />
+  <meta name="theme-color" content="#059669" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="stylesheet" href="/styles.css" />
+  <script src="/theme.js"></script>
 </head>
-<body>
+<body class="guest">
   <a class="skip" href="#view">Skip to content</a>
   <div id="app" class="app">
     <aside class="sidebar" aria-label="Main navigation">
       <a href="/" class="brand" aria-label="AutoGrader+ home">
-        <span class="logo" aria-hidden="true">AG</span>
-        <span class="brand-t"><b>AutoGrader<i>+</i></b><small>full-stack learning platform</small></span>
+        <span class="logo" id="logo-side"></span>
+        <span class="brand-t"><span>AutoGrader<i>+</i></span><small>Learn full-stack development</small></span>
       </a>
       <nav id="sidebar-nav"></nav>
-      <div class="side-foot">
-        <div id="health" class="health" role="status" aria-live="polite">checking…</div>
-      </div>
+      <div class="side-foot" id="side-foot"></div>
     </aside>
     <div class="scrim" aria-hidden="true"></div>
     <div class="main-col">
       <header class="topbar">
-        <button id="menu-btn" class="icon-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar-nav">☰</button>
-        <a href="/" class="brand compact" aria-label="AutoGrader+ home"><span class="logo sm" aria-hidden="true">AG</span><b>AutoGrader<i>+</i></b></a>
+        <button id="menu-btn" class="icon-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar-nav"></button>
+        <a href="/" class="brand compact" aria-label="AutoGrader+ home"><span class="logo" id="logo-top"></span><span>AutoGrader<i>+</i></span></a>
         <div class="spacer"></div>
-        <div id="user-box" class="user-box"></div>
+        <nav class="top-links" id="top-links" aria-label="Site"></nav>
+        <button id="theme-btn" class="icon-btn" type="button" aria-label="Switch to dark mode" title="Light / dark mode"></button>
       </header>
       <main id="view" class="view" tabindex="-1"></main>
     </div>

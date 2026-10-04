@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 
 from .. import config
@@ -65,6 +66,8 @@ def _verdict_tool(dimensions: list[str]) -> dict:
 
 
 GRADE_BANDS = [(85, "A"), (78, "A-"), (70, "B"), (62, "B-"), (55, "C"), (48, "C-"), (40, "D"), (0, "F")]
+DIM_NAMES = {"code_quality": "code quality", "architecture": "architecture", "security": "security",
+             "testing": "testing", "devops": "Docker & DevOps"}
 
 LEARNING_TOPICS = {
     "code_quality": "Clean code: small single-purpose functions, linting (ESLint/Ruff) and auto-formatting in CI.",
@@ -157,12 +160,19 @@ class JudgeAgent:
             ((f, rubric.weights.get(r.dimension, 0)) for r in reports for f in r.findings),
             key=lambda t: (SEVERITY_RANK[t[0].severity], -t[1]),
         )
+        # The same issue in several files ("Container runs as root [vote/Dockerfile]") is one priority.
+        base = lambda title: re.sub(r"\s*\[[^\]]+\]\s*$", "", title)  # noqa: E731
+        places: dict[str, int] = {}
+        for f, _ in ranked_findings:
+            places[base(f.title)] = places.get(base(f.title), 0) + 1
         priorities, seen = [], set()
         for f, _ in ranked_findings:
-            if f.title in seen or f.severity == "info":
+            title = base(f.title)
+            if title in seen or f.severity == "info":
                 continue
-            seen.add(f.title)
-            priorities.append(f"[{f.severity}] {f.title} — {f.recommendation}")
+            seen.add(title)
+            n = places[title]
+            priorities.append(f"[{f.severity}] {title}{f' ({n} places)' if n > 1 else ''} — {f.recommendation}")
             if len(priorities) == 5:
                 break
 
@@ -174,9 +184,9 @@ class JudgeAgent:
         if not stack.get("proxy_lb"):
             path.append("Networking: put Nginx in front as a reverse proxy and load-balance two app replicas.")
         strongest = max(dims, key=lambda d: d.final_score)
-        summary = (f"Overall {score}/100 ({letter_grade(score)}). Strongest dimension: {strongest.dimension} "
-                   f"({strongest.final_score}/10); weakest: {weakest[0].dimension} ({weakest[0].final_score}/10). "
-                   "Scores come from deterministic heuristics (no LLM key configured), so treat them as an estimate.")
+        summary = (f"Your project scored {score}/100 ({letter_grade(score)}). Your strongest area is "
+                   f"{DIM_NAMES.get(strongest.dimension, strongest.dimension)} ({strongest.final_score}/10); start improving "
+                   f"{DIM_NAMES.get(weakest[0].dimension, weakest[0].dimension)} ({weakest[0].final_score}/10) first.")
         return JudgeVerdict(final_score=score, grade=letter_grade(score), summary=summary, dimensions=dims,
                             top_priorities=priorities, learning_path=path[:6],
                             calibration_notes=["Heuristic mode: no cross-examination performed."],
