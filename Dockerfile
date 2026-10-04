@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# AutoGrader image - follows the same rules its DevOps agent grades students on:
+# AutoGrader+ image - follows the same rules its DevOps agent grades students on:
 # pinned bases, multi-stage, deps-before-source layer caching, non-root, healthcheck, exec-form CMD.
 
 # Stage 1: only used to borrow the static docker CLI binary (for the optional build sandbox).
@@ -30,5 +30,6 @@ USER autograder
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -fsS http://localhost:8000/api/health || exit 1
-# One worker on purpose: job state + SSE fan-out live in-process (see docs/ARCHITECTURE.md §9).
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# One worker per container on purpose: live job state + SSE fan-out live in-process. Scale out with
+# more replicas behind nginx (sticky routing), not more workers (see docs/ARCHITECTURE.md §9).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--timeout-graceful-shutdown", "10"]

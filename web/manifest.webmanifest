@@ -1,0 +1,22 @@
+{
+  "name": "AutoGrader+ · full-stack learning platform",
+  "short_name": "AutoGrader+",
+  "description": "Multi-agent AI grading of GitHub projects, assignments, dashboards and hands-on full-stack labs.",
+  "start_url": "/student/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Dashboard", "url": "/student/dashboard" },
+    { "name": "Assignments", "url": "/student/assignments" },
+    { "name": "Labs", "url": "/labs" }
+  ]
+}

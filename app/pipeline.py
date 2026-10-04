@@ -38,7 +38,7 @@ def _now() -> str:
 async def run_pipeline(job: Job) -> GradeReport:
     req = job.request
     tracer = Tracer(job.publish)
-    work = config.WORK_DIR / "jobs" / job.id
+    work = config.JOBS_DIR / job.id
     repo_dir = work / "repo"
     notes: list[str] = []
     llm = llm_enabled()

@@ -16,7 +16,6 @@ from pptx.util import Emu, Inches, Pt
 
 OUT = Path(__file__).resolve().parent / "AutoGrader.pptx"
 REPO_URL = "github.com/roshanraj9136/auto-grader"
-PRESENTER = "Roshan Raj"
 
 BG = RGBColor(0x0B, 0x10, 0x20)
 PANEL = RGBColor(0x12, 0x19, 0x33)
@@ -33,7 +32,7 @@ FONT = "Segoe UI"
 
 prs = Presentation()
 prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
-TOTAL_SLIDES = 13
+TOTAL_SLIDES = 14
 
 
 # ---------------------------------------------------------------------------- helpers
@@ -177,9 +176,9 @@ def s_title():
     for i, (label, col) in enumerate([("Parallel agent DAG", ACC), ("2.74× faster than sequential", GREEN),
                                       ("Docker sandbox", CYAN), ("Explainable scores", AMBER)]):
         box(s, 0.9 + i * 2.95, 5.35, 2.75, 0.55, label, fill=PANEL, accent=col, title_size=13)
-    text(s, 0.9, 6.55, 8, 0.4, f"Presented by {PRESENTER}", size=14, color=FG, bold=True)
+    text(s, 0.9, 6.55, 8, 0.4, "CSL100 · Group project", size=14, color=FG, bold=True)
     text(s, 7.0, 6.55, 5.6, 0.4, REPO_URL, size=14, color=CYAN, align=PP_ALIGN.RIGHT)
-    notes(s, "Hello everyone. I'm presenting AutoGrader+, an extension of the Autograder idea we use in CSL100. "
+    notes(s, "Hello everyone. We're presenting AutoGrader+, an extension of the Autograder idea we use in CSL100. "
              "Instead of grading single programs with test cases, it grades a whole full-stack project. "
              "Five specialist AI agents review the code, Docker setup, tests and security in parallel, and a judge "
              "agent combines their reports into one explainable grade and a learning path for the student. "
@@ -234,12 +233,38 @@ def s_solution():
              "The judge reads their reports and produces the final verdict. The output is a full report in HTML, Markdown and JSON.")
 
 
+def s_platform():
+    s = new_slide("The platform: learn full-stack in one place", "AutoGrader+ v2")
+    cols = [
+        ("Students", ACC, ["Dashboard: score history, skill radar, XP & level", "Assignments with rubric-weighted grading",
+                           "Live grading pipeline + full report", "Leaderboard and personal learning path"]),
+        ("Hands-on labs", CYAN, ["Frontend: live HTML/CSS/JS editor, DOM checks", "Databases: SQL playground + query plans",
+                                 "Load balancers: round-robin vs least-conn vs sticky", "Networks: RTT, proxy headers, Server-Timing",
+                                 "Containers: Dockerfile linter (20+ rules)"]),
+        ("Instructors", GREEN, ["Publish assignments, rubric weights, deadlines", "Class overview: grade distribution, weak dimensions",
+                                "Shared-repo flag (group work or copying)", "Gradebook export (CSV)"]),
+    ]
+    for i, (head, col, items) in enumerate(cols):
+        x = 0.6 + i * 4.2
+        box(s, x, 1.65, 3.95, 0.6, head, fill=col, line=col, title_color=BG, title_size=16)
+        box(s, x, 2.35, 3.95, 3.55, None, fill=PANEL)
+        bullets(s, x + 0.18, 2.5, 3.65, 3.4, items, size=13, bullet_color=col, gap=7)
+    box(s, 0.6, 6.1, 12.15, 0.75, None, fill=PANEL2, accent=AMBER, radius=0.08)
+    text(s, 0.8, 6.18, 11.8, 0.6, "Every lab runs on the platform's real infrastructure: its PostgreSQL, its Nginx load balancer, its "
+                                  "API replicas. Web + installable mobile app (PWA). Accounts, sessions, server-verified tasks.",
+         size=13, color=FG)
+    notes(s, "This is what turns the grader into the platform the course asked for. Students get a dashboard, assignments, "
+             "and five labs that cover the stack: frontend, databases, load balancers, networks and containers. The labs are "
+             "not simulations. The load-balancer lab sends real requests through our Nginx to three API replicas, and the SQL "
+             "lab shows real query plans. Instructors publish assignments and see where the class struggles.")
+
+
 def s_architecture():
     s = new_slide("System architecture", "Layered, event-driven, single-pass")
     # main flow
-    box(s, 0.5, 1.9, 1.9, 1.1, "Web UI", ["form · live DAG", "SSE · report"], accent=CYAN)
-    box(s, 2.85, 1.9, 1.9, 1.1, "Nginx", ["rate limit", "SSE passthrough"], accent=CYAN)
-    box(s, 5.2, 1.9, 2.0, 1.1, "FastAPI", ["REST + SSE", "validation · auth"], accent=ACC)
+    box(s, 0.5, 1.9, 1.9, 1.1, "Web / PWA", ["dashboards · labs", "SSE · report"], accent=CYAN)
+    box(s, 2.85, 1.9, 1.9, 1.1, "Nginx LB", ["sticky · rr · least", "rate limit · SSE"], accent=CYAN)
+    box(s, 5.2, 1.9, 2.0, 1.1, "API ×3", ["FastAPI replicas", "auth · REST · SSE"], accent=ACC)
     box(s, 7.65, 1.9, 2.2, 1.1, "JobManager", ["admission control", "single-flight · events"], accent=ACC)
     for x1, x2 in ((2.4, 2.85), (4.75, 5.2), (7.2, 7.65)):
         arrow(s, x1, 2.45, x2, 2.45, color=FG)
@@ -259,16 +284,17 @@ def s_architecture():
     arrow(s, 5.19, 5.3, 5.19, 5.0, color=AMBER, dashed=True)
     # externals
     for i, (t, b, col) in enumerate([("GitHub", "ls-remote · shallow clone", MUTED), ("Claude API", "tool-use JSON · prompt cache", ACC),
-                                     ("Docker daemon", "BuildKit · locked-down run", AMBER), ("Storage", "result cache · reports", GREEN)]):
+                                     ("Docker daemon", "BuildKit · locked-down run", AMBER), ("PostgreSQL", "users · grades · reports", GREEN)]):
         y = 1.9 + i * 1.18
         box(s, 10.35, y, 2.5, 0.95, t, b, fill=PANEL, accent=col, title_size=13, body_size=10)
         arrow(s, 9.85, 4.9 if i else 4.3, 10.35, y + 0.47, color=col, width=1.25, dashed=True)
     text(s, 0.5, 6.6, 12.4, 0.4, "Dependencies point one way: UI → API → jobs/pipeline → agents → infrastructure. "
                                  "Agents never touch disk or network directly.",
          size=12, color=MUTED)
-    notes(s, "Requests pass through Nginx, which handles rate limiting and SSE passthrough, to a FastAPI service. A JobManager "
-             "enforces admission control and de-duplicates identical requests. The pipeline is an asyncio DAG. "
-             "External systems are GitHub, Claude, the Docker daemon and storage. Layers depend downward only. "
+    notes(s, "Requests pass through Nginx, which load-balances across three stateless API replicas, rate-limits and passes "
+             "Server-Sent Events through. Sessions and grades live in PostgreSQL on a private network, so any replica can "
+             "serve any page; live grading streams use sticky routing. A JobManager enforces admission control and "
+             "de-duplicates identical requests. The pipeline is an asyncio DAG. Layers depend downward only. "
              "Agents read a shared, read-only repository index (a blackboard), so no agent re-reads the disk.")
 
 
@@ -470,7 +496,7 @@ def s_security():
         ("No shell, ever", "argument lists; refs can't start with '-'"),
         ("Secret redaction", "9 scanners; redacted before prompts and reports"),
         ("Locked-down run", "--network none, 512 MB, 1 CPU, 256 PIDs, cap-drop ALL"),
-        ("Edge protection", "Nginx rate limit 6/min/IP, optional bearer token"),
+        ("Edge protection", "Nginx rate limits, scrypt passwords, HttpOnly sessions, CSRF checks, strict CSP"),
         ("Opt-in build sandbox", "docker build runs untrusted RUN steps → isolated VM"),
     ], size=13.5, bullet_color=RED)
     box(s, 6.8, 1.65, 5.95, 4.8, None, fill=PANEL, accent=GREEN)
@@ -492,27 +518,29 @@ def s_security():
 def s_stack():
     s = new_slide("Tech stack", "Built with")
     items = [
-        ("Backend", "Python 3.12 · FastAPI · asyncio · Pydantic v2", ACC),
+        ("Backend", "Python 3.12 · FastAPI · asyncio · Pydantic v2 · scrypt-hashed accounts, HttpOnly sessions", ACC),
         ("AI", "Anthropic Claude: tool-use structured output, prompt caching, model tiering", CYAN),
-        ("Sandbox", "Docker / BuildKit · hardened docker run", AMBER),
-        ("Edge", "Nginx: rate limiting, SSE passthrough, gzip, upstream keepalive", GREEN),
-        ("Frontend", "Vanilla JS + Server-Sent Events: live DAG + waterfall, accessible HTML report", ACC),
-        ("Packaging", "Multi-stage Dockerfile (non-root, healthcheck) · docker-compose", CYAN),
+        ("Data", "PostgreSQL 17 (docker compose) or SQLite (zero setup) · portable SQL layer, heartbeats", GREEN),
+        ("Edge", "Nginx: load balancing (sticky / round-robin / least-conn), rate limits, SSE passthrough", AMBER),
+        ("Frontend", "Vanilla JS SPA + SSE · SVG charts · installable PWA · strict CSP · sandboxed code lab", ACC),
+        ("Packaging", "Multi-stage Dockerfile (non-root, healthcheck) · compose: nginx + 3 API replicas + Postgres", CYAN),
     ]
     for i, (h, d, col) in enumerate(items):
         y = 1.7 + i * 0.8
         box(s, 0.6, y, 2.4, 0.65, h, fill=col, line=col, title_color=BG, title_size=15)
         box(s, 3.15, y, 9.6, 0.65, d, fill=PANEL, title_size=14, title_color=FG, align=PP_ALIGN.LEFT)
-    notes(s, "The stack is intentionally simple: FastAPI with asyncio for concurrency, Claude for the agents, Docker for the sandbox, "
-             "Nginx at the edge, and a lightweight frontend that streams progress. The project's own Dockerfile follows the rules its DevOps agent checks.")
+    notes(s, "The stack is intentionally simple: FastAPI with asyncio for concurrency, Claude for the agents, PostgreSQL for shared "
+             "state, Nginx as the load balancer, and a dependency-free frontend that also installs as a mobile app. The project's "
+             "own Dockerfile follows the rules its DevOps agent checks.")
 
 
 def s_roadmap():
-    s = new_slide("Roadmap: towards an all-in-one full-stack learning platform", "Next version of Autograder")
+    s = new_slide("Roadmap: from grader to full-stack learning platform", "Where we are")
     phases = [
-        ("Now", "v1: this project", ["5 agents + judge", "Docker sandbox", "parallel DAG, caching", "single API + Nginx"], GREEN),
-        ("Next", "Scale out", ["Redis queue + workers", "stateless API replicas", "behind a load balancer", "Postgres + object store"], ACC),
-        ("Then", "Teach full-stack", ["per-student containers", "LB, network & DB labs", "web + mobile clients", "graded by AutoGrader+"], CYAN),
+        ("v1", "Grader", ["5 agents + judge", "Docker sandbox", "parallel DAG, caching", "single API + Nginx"], GREEN),
+        ("v2", "Platform (now)", ["accounts, assignments, dashboards", "5 hands-on labs", "3 API replicas + LB", "PostgreSQL · PWA"], ACC),
+        ("Next", "At course scale", ["Redis queue + grading workers", "per-student containers", "GitHub classroom sync",
+                                     "object store for reports"], CYAN),
     ]
     for i, (tag, head, items, col) in enumerate(phases):
         x = 0.6 + i * 4.2
@@ -525,16 +553,16 @@ def s_roadmap():
                                   "Students learn frontend, load balancers, networks and databases in one place, and AutoGrader+ "
                                   "closes the feedback loop with explainable grades and a learning path.",
          size=14, color=FG)
-    notes(s, "Today it is a single service. Next, move job state to Redis so that many stateless API replicas can sit behind a load "
-             "balancer. Finally, this becomes the grading engine of a platform where each student's backend runs in containers "
-             "and they learn load balancers, networks and databases hands-on.")
+    notes(s, "Version one was the grader. Version two, what we are showing today, is the platform: accounts, assignments, "
+             "dashboards and labs, running as three replicas behind a load balancer with PostgreSQL. Next, a Redis queue with "
+             "dedicated grading workers, and per-student containers so every student's backend runs on the platform itself.")
 
 
 def s_demo():
     s = new_slide("Live demo  ·  Q&A", "Thank you")
-    steps = ["Open the web UI (python -m uvicorn app.main:app)", "Paste a GitHub repo URL (+ optional Dockerfile)",
-             "Watch the live DAG: agents run in parallel", "Open the report: score, findings, learning path",
-             "Show the latency waterfall + critical path", "Re-submit: cache hit in about 1 s"]
+    steps = ["docker compose up: open http://localhost:8080", "Student: submit a repo for an assignment",
+             "Watch the live DAG: agents run in parallel", "Dashboard: score history, skill radar, learning path",
+             "Labs: load balancer across 3 replicas, SQL plans", "Instructor: class overview + gradebook export"]
     for i, st in enumerate(steps):
         y = 1.75 + i * 0.68
         box(s, 0.6, y, 0.55, 0.55, str(i + 1), fill=ACC, line=ACC, title_color=BG, title_size=15, radius=0.5)
@@ -545,11 +573,12 @@ def s_demo():
     text(s, 8.2, 3.25, 4.4, 2.2, ["README: quick start", "docs/ARCHITECTURE.md: full design",
                                   "scripts/latency_benchmark.py: reproduce results"], size=13, color=MUTED, align=PP_ALIGN.CENTER, spacing=1.4)
     text(s, 0.6, 6.15, 12.3, 0.7, "Questions?", size=30, bold=True, color=ACC, align=PP_ALIGN.CENTER)
-    notes(s, "Demo plan: start the server, paste a repo, show the stages lighting up in parallel, open the report, point at the "
-             "critical path in the waterfall, then resubmit to show the one-second cache hit. Thank you, happy to take questions.")
+    notes(s, "Demo plan: bring the stack up with docker compose, sign in as a student, submit a repository for an assignment and "
+             "watch the agents run in parallel. Then the dashboard, the load-balancer lab hitting three replicas, and the "
+             "instructor view with the gradebook export. Thank you, happy to take questions.")
 
 
-for fn in (s_title, s_problem, s_solution, s_architecture, s_agents, s_dag, s_latency, s_results,
+for fn in (s_title, s_problem, s_solution, s_platform, s_architecture, s_agents, s_dag, s_latency, s_results,
            s_report, s_security, s_stack, s_roadmap, s_demo):
     fn()
 
