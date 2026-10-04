@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AutoGrader — multi-agent grading for full-stack projects</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">AG</span>
+      <div>
+        <h1>AutoGrader</h1>
+        <p class="tag">5 specialist LLM agents + 1 judge · GitHub repo + Dockerfile → full report</p>
+      </div>
+    </div>
+    <div id="health" class="health" role="status" aria-live="polite">checking…</div>
+  </header>
+
+  <main id="main">
+    <section class="panel" aria-labelledby="submit-h">
+      <h2 id="submit-h">Grade a project</h2>
+      <form id="grade-form" novalidate>
+        <div class="row">
+          <label for="repo_url">GitHub repository URL <span aria-hidden="true">*</span></label>
+          <input id="repo_url" name="repo_url" type="url" required placeholder="https://github.com/owner/repo"
+                 pattern="https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/?" autocomplete="url" />
+        </div>
+        <div class="grid2">
+          <div class="row">
+            <label for="ref">Branch / tag / commit <span class="hint">(optional)</span></label>
+            <input id="ref" name="ref" type="text" placeholder="main" />
+          </div>
+          <div class="row">
+            <label for="dockerfile_file">Dockerfile <span class="hint">(optional — else the repo's own)</span></label>
+            <input id="dockerfile_file" type="file" />
+          </div>
+        </div>
+        <div class="row">
+          <label for="dockerfile_text">…or paste a Dockerfile</label>
+          <textarea id="dockerfile_text" rows="4" spellcheck="false" placeholder="FROM node:20-alpine&#10;WORKDIR /app&#10;…"></textarea>
+        </div>
+
+        <fieldset>
+          <legend>Rubric weights <span class="hint">(normalised automatically; 0 disables an agent)</span></legend>
+          <div class="weights" id="weights"></div>
+        </fieldset>
+
+        <div class="row">
+          <label for="rubric_notes">Instructor rubric / assignment brief <span class="hint">(shared with every agent and the judge)</span></label>
+          <textarea id="rubric_notes" rows="3" placeholder="e.g. Must expose a REST API backed by PostgreSQL, React frontend, docker-compose with nginx."></textarea>
+        </div>
+        <div class="grid2">
+          <label class="check"><input id="force" type="checkbox" /> Force re-grade (bypass result cache)</label>
+          <div class="row" id="token-row" hidden>
+            <label for="token">API token</label>
+            <input id="token" type="password" autocomplete="off" />
+          </div>
+        </div>
+        <p id="form-error" class="error" role="alert"></p>
+        <button id="submit" type="submit">Start grading</button>
+      </form>
+    </section>
+
+    <section class="panel" id="live" aria-labelledby="live-h" hidden>
+      <h2 id="live-h">Live pipeline <span id="job-id" class="mono"></span></h2>
+      <p id="live-status" role="status" aria-live="polite"></p>
+      <div class="dag" id="dag" aria-label="Pipeline stages"></div>
+      <h3>Waterfall</h3>
+      <div id="waterfall" class="waterfall" role="img" aria-label="Live stage timeline"></div>
+    </section>
+
+    <section class="panel" id="result" aria-labelledby="result-h" hidden>
+      <h2 id="result-h">Result</h2>
+      <div class="result-head">
+        <div id="score" class="score" role="img"></div>
+        <div>
+          <p id="result-summary"></p>
+          <p class="links">
+            <a id="link-html" target="_blank" rel="noopener">Open HTML report</a> ·
+            <a id="link-md">Download Markdown</a> ·
+            <a id="link-json" target="_blank" rel="noopener">JSON</a>
+          </p>
+        </div>
+      </div>
+      <iframe id="report-frame" title="Full grading report"></iframe>
+    </section>
+
+    <section class="panel" aria-labelledby="metrics-h">
+      <h2 id="metrics-h">Latency metrics <button id="refresh-metrics" class="ghost" type="button">refresh</button></h2>
+      <div id="metrics"></div>
+      <h3>Recent jobs</h3>
+      <div id="jobs"></div>
+    </section>
+  </main>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# Opt-in Docker build/run sandbox:
+#   docker compose -f docker-compose.yml -f docker-compose.sandbox.yml up --build
+#
+# SECURITY: mounting the Docker socket gives this container root-equivalent control of the host's
+# Docker daemon, and student Dockerfiles execute arbitrary RUN steps (with network) during build.
+# Only enable this on a dedicated grading VM or with rootless Docker / a remote BuildKit builder.
+services:
+  api:
+    environment:
+      AUTOGRADER_ENABLE_DOCKER: "1"
+      AUTOGRADER_DOCKER_BUILD_TIMEOUT: ${AUTOGRADER_DOCKER_BUILD_TIMEOUT:-600}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-0}"   # GID owning docker.sock on the host (`stat -c %g /var/run/docker.sock`)
