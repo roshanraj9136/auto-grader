@@ -472,11 +472,30 @@ def _detect_stack(idx: RepoIndex) -> dict[str, list[str]]:
         if f.ext == ".tf":
             found["orchestration"].add("Terraform")
     if idx.compose_files:
-        services = len(re.findall(r"^\s{2}[\w.-]+:\s*$", compose_text, re.M))
+        services = _count_compose_services(compose_text)
         found["orchestration"].add(f"Docker Compose ({services} services)" if services else "Docker Compose")
     if idx.docker_files:
         found["orchestration"].add("Docker")
     return {k: sorted(v) for k, v in sorted(found.items()) if v}
+
+
+def _count_compose_services(compose_text: str) -> int:
+    """Count keys directly under each top-level `services:` block (ignores volumes/networks)."""
+    names: set[str] = set()
+    in_services, indent = False, None
+    for line in compose_text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            in_services, indent = line.rstrip().startswith("services:"), None
+            continue
+        if in_services:
+            cur = len(line) - len(line.lstrip())
+            if indent is None:
+                indent = cur
+            if cur == indent and re.match(r"^\s*[\w.-]+:\s*$", line):
+                names.add(line.strip()[:-1])
+    return len(names)
 
 
 def manifest_scripts(idx: RepoIndex) -> dict[str, dict]:
