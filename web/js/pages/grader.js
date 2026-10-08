@@ -104,7 +104,8 @@ export async function job(view, { id }) {
   try { await api(`/api/jobs/${encodeURIComponent(id)}`); } catch (e) { if (e.status === 404) live = false; else throw e; }
   if (live) return liveJob($("#live-host"), id, {});
   const sub = await api(`/api/submissions/by-job/${encodeURIComponent(id)}`);
-  if (sub.status === "queued" || sub.status === "running") return liveJob($("#live-host"), id, { pollOnly: true });
+  // Running on another server, or this one restarted: the stream is replayed from the database.
+  if (sub.status === "queued" || sub.status === "running") return liveJob($("#live-host"), id, {});
   if (sub.status === "failed") {
     $("#live-host").innerHTML = failedCard(sub.error);
     return null;
@@ -296,7 +297,9 @@ export async function renderFeedback(host, jobId, sub = null) {
     return;
   }
   const v = r.verdict;
-  const score = v.final_score;
+  const adj = sub?.override && sub.final_score != null ? sub.override : null; // instructor-adjusted grade wins
+  const score = adj ? sub.final_score : v.final_score;
+  const gradeLetter = adj ? sub.grade : v.grade;
   const dims = v.dimensions;
   const agents = Object.fromEntries((r.agents || []).map((a) => [a.dimension, a]));
   const priorities = groupPriorities((v.top_priorities || []).map(parsePriority)).slice(0, 5);
@@ -341,10 +344,12 @@ export async function renderFeedback(host, jobId, sub = null) {
   <section class="panel verdict">
     <div class="score-mark ${gradeClass(score)}">
       <div class="score-line"><b id="score-n">${esc(Math.round(score))}</b><span class="of">/100</span></div>
-      <span class="letter">Grade<strong>${esc(v.grade)}</strong></span>
+      <span class="letter">Grade<strong>${esc(gradeLetter)}</strong></span>
     </div>
     <div class="grow">
       <p class="verdict-word">${esc(verdictFor(score))}</p>
+      ${adj ? `<div class="banner adj-note">${icon("edit")}<span><b>Adjusted by ${esc(adj.by_name || "your instructor")}</b> from ${esc(adj.original_score)}
+        to ${esc(score)}: ${esc(adj.reason)}</span></div>` : ""}
       <h2><a href="${esc(r.repo_url)}" target="_blank" rel="noopener">${esc(repoName)}</a></h2>
       <p>${esc(v.summary || `The strongest area is ${DIMENSIONS[strongest?.dimension] || ""}.`)}</p>
       <div class="row-btns">

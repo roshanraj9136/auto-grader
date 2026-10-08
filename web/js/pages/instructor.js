@@ -53,7 +53,7 @@ function attentionItems(d, students) {
     const left = daysLeft(a.due_at);
     if (left != null && left >= 0 && left <= 7 && a.completion < 0.6) {
       items.push(["amber", `${esc(a.title)} is due ${esc(relTime(a.due_at))}`, `Only ${pct(a.completion)} of the class has submitted so far.`,
-        `<a class="go" href="/student/assignment/${a.id}">Open</a>`]);
+        `<a class="go" href="/instructor/assignment/${a.id}">Open</a>`]);
     }
   }
   const weakest = Object.entries(d.dimension_avg).filter(([, v]) => v != null).sort((a, b) => a[1] - b[1])[0];
@@ -66,7 +66,7 @@ function attentionItems(d, students) {
 function latestTable(rows) {
   if (!rows.length) return emptyState("Nothing to show", "No submissions match this filter.", "", "upload");
   return `<div class="table-wrap"><table><thead><tr><th>Student</th><th>Assignment</th><th class="hide-sm">Repository</th><th class="hide-sm">Submitted</th><th>Status</th><th class="num">Score</th><th></th></tr></thead><tbody>
-    ${rows.map((s) => `<tr class="${s.shared_by > 1 ? "flagged" : ""}"><td><b>${esc(s.student)}</b>${s.entry_no ? `<span class="sub-l">${esc(s.entry_no)}</span>` : ""}</td>
+    ${rows.map((s) => `<tr class="${s.shared_by > 1 ? "flagged" : ""}"><td><a href="/instructor/student/${s.user_id}"><b>${esc(s.student)}</b></a>${s.entry_no ? `<span class="sub-l">${esc(s.entry_no)}</span>` : ""}</td>
       <td>${esc(s.assignment_title || "Practice")}</td>
       <td class="repo hide-sm"><a href="${esc(s.repo_url)}" target="_blank" rel="noopener">${esc(repoShort(s.repo_url))}</a>
         ${s.shared_by > 1 ? `<span class="chip bad" title="The same repository was submitted by ${s.shared_by} students for this assignment">Shared by ${s.shared_by}</span>` : ""}</td>
@@ -87,8 +87,8 @@ export async function dashboard(view) {
     ["running", "In progress", (s) => s.status === "queued" || s.status === "running"]];
   view.innerHTML = `
   ${pageHeader("", "Class overview", `${plural(c.students, "student")}, ${plural(c.assignments, "assignment")}. Start with the items marked in red.`,
-    `<a class="btn" href="/instructor/assignments">${icon("plus")} New assignment</a>
-     <a class="ghost" href="/api/instructor/gradebook.csv" download>${icon("download")} Export gradebook</a>`)}
+    `<a class="btn" href="/instructor/assignments" data-write>${icon("plus")} New assignment</a>
+     <a class="ghost" href="/instructor/gradebook">${icon("list")} Gradebook</a>`)}
   <section class="ledger" aria-label="Class numbers">
     <div><span>Students active</span><b>${active}<small>of ${c.students}</small></b></div>
     <div><span>Submissions</span><b>${c.submissions}<small>${c.graded} graded${c.active ? `, ${c.active} running` : ""}</small></b></div>
@@ -110,7 +110,7 @@ export async function dashboard(view) {
       <th class="num">Average</th><th class="num">Top</th><th class="num hide-sm">Attempts</th></tr></thead><tbody>
       ${d.assignments.map((a) => {
         const left = daysLeft(a.due_at);
-        return `<tr><td><a href="/student/assignment/${a.id}"><b>${esc(a.title)}</b></a><span class="sub-l">${esc(TRACKS[a.track] || a.track)}</span></td>
+        return `<tr><td><a href="/instructor/assignment/${a.id}"><b>${esc(a.title)}</b></a><span class="sub-l">${esc(TRACKS[a.track] || a.track)}</span></td>
         <td>${a.due_at ? `${esc(fmtDate(a.due_at))}<span class="sub-l">${left < 0 ? "closed" : esc(relTime(a.due_at))}</span>` : `<span class="muted">No deadline</span>`}</td>
         <td><div class="compl">${`<div class="bar"><span style="width:${pct(a.completion)}"></span></div>`}<span class="t">${a.students_submitted} of ${c.students}</span></div></td>
         <td class="num">${a.avg_best != null ? gradeBadge(a.avg_best, "") : "–"}</td><td class="num">${a.max_best ?? "–"}</td>
@@ -174,7 +174,7 @@ function assignmentForm(a = null) {
         <input id="aw-${k}" type="number" min="0" max="1" step="0.05" value="${w[k] ?? 0}" /></div>`).join("")}</div></fieldset>
     <div class="field"><label for="a-due">Deadline <span class="muted">(your local time)</span></label><input id="a-due" type="datetime-local" value="${esc(due)}" /></div>
     <p id="a-err" class="error" role="alert"></p>
-    <div class="row-btns"><button class="btn" type="submit">${a ? "Save changes" : "Publish assignment"}</button>
+    <div class="row-btns"><button class="btn" type="submit" data-write>${a ? "Save changes" : "Publish assignment"}</button>
       ${a ? `<button class="ghost" type="button" id="a-cancel">Cancel</button>` : ""}</div>
   </form>`;
 }
@@ -185,11 +185,12 @@ export async function assignments(view, _p, query) {
   const load = async () => {
     rows = await api("/api/assignments");
     $("#a-list").innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Title</th><th>Due</th><th class="num">Students</th><th></th></tr></thead><tbody>
-      ${rows.map((a) => `<tr class="${editing === a.id ? "flagged" : ""}"><td><a href="/student/assignment/${a.id}"><b>${esc(a.title)}</b></a><span class="sub-l">${esc(TRACKS[a.track] || a.track)}</span></td>
+      ${rows.map((a) => `<tr class="${editing === a.id ? "flagged" : ""}"><td><a href="/instructor/assignment/${a.id}"><b>${esc(a.title)}</b></a><span class="sub-l">${esc(TRACKS[a.track] || a.track)}</span></td>
         <td>${a.due_at ? esc(fmtDate(a.due_at, true)) : `<span class="muted">No deadline</span>`}</td><td class="num">${a.class_stats.students}</td>
-        <td class="actions"><button class="ghost sm" data-edit="${a.id}" type="button">Edit</button>
-          <button class="ghost sm danger" data-del="${a.id}" type="button">Delete</button></td></tr>`).join("")}</tbody></table></div>`
+        <td class="actions"><button class="ghost sm" data-edit="${a.id}" type="button" data-write>Edit</button>
+          <button class="ghost sm danger" data-del="${a.id}" type="button" data-write>Delete</button></td></tr>`).join("")}</tbody></table></div>`
       : emptyState("No assignments yet", "Publish the first one with the form.", "", "book");
+    window.__applyReadOnly?.(view);
     $("#a-list").querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
       edit(rows.find((r) => String(r.id) === b.dataset.edit));
     }));
@@ -224,6 +225,7 @@ export async function assignments(view, _p, query) {
         load();
       } catch (err) { $("#a-err").textContent = err.message; }
     });
+    window.__applyReadOnly?.(view);
     if (a) $("#a-form-host").scrollIntoView({ behavior: "smooth", block: "start" });
   };
   view.innerHTML = `${pageHeader(`<a href="/instructor/dashboard">Overview</a>`, "Assignments", "The weights and checklist you set here decide how every submission is scored.")}
@@ -275,7 +277,7 @@ export async function students(view, _p, query) {
     });
     $("#st-body").innerHTML = list.length ? list.map((r) => {
       const [cls, label] = standing(r);
-      return `<tr class="${cls === "risk" ? "flagged" : ""}"><td><b>${esc(r.name)}</b>${r.entry_no ? `<span class="sub-l">${esc(r.entry_no)}</span>` : ""}</td>
+      return `<tr class="${cls === "risk" ? "flagged" : ""}"><td><a href="/instructor/student/${r.id}"><b>${esc(r.name)}</b></a>${r.entry_no ? `<span class="sub-l">${esc(r.entry_no)}</span>` : ""}</td>
         <td class="hide-sm">${esc(r.email)}</td><td><span class="status-tag ${cls}">${label}</span></td>
         <td class="num">${r.avg_best != null ? gradeBadge(r.avg_best, "") : "–"}</td><td class="num hide-sm">${r.submissions}</td>
         <td class="num hide-sm">${r.labs_done}</td><td class="num">${r.xp}</td>

@@ -10,6 +10,9 @@ import base64
 import hashlib
 import hmac
 import secrets
+import threading
+import time
+from collections import defaultdict, deque
 
 from fastapi import Depends, HTTPException, Request, Response
 
@@ -103,3 +106,83 @@ def require_instructor(user: dict = Depends(require_user)) -> dict:
     if user["role"] != "instructor":
         raise HTTPException(status_code=403, detail="instructor role required")
     return user
+
+
+# ---- public demo accounts ----------------------------------------------------------------
+# With AUTOGRADER_DEMO_SEED=1 anyone may sign in as these, so they are read-only where it matters:
+# the demo instructor can look at everything but cannot change grades or assignments, and no demo
+# login can change its own password or name. Sample classmates live under DEMO_CLASS_DOMAIN.
+DEMO_LOGINS = frozenset({"instructor@autograder.local", "student@autograder.local"})
+DEMO_CLASS_DOMAIN = "demo.autograder.local"
+
+
+def is_demo_account(user: dict | None) -> bool:
+    email = ((user or {}).get("email") or "").lower()
+    return email in DEMO_LOGINS or email.endswith("@" + DEMO_CLASS_DOMAIN)
+
+
+def require_instructor_write(user: dict = Depends(require_instructor)) -> dict:
+    """Instructor actions that change data (grades, assignments, regrading)."""
+    if is_demo_account(user):
+        raise HTTPException(status_code=403, detail="The public demo instructor is read-only. "
+                                                    "Sign in with the real instructor account to make changes.")
+    return user
+
+
+def visible_email(viewer: dict | None, email: str | None) -> str | None:
+    """Real students' email addresses are not shown to the public demo instructor."""
+    if not email or not is_demo_account(viewer) or email.lower().endswith("@" + DEMO_CLASS_DOMAIN)             or email.lower() in DEMO_LOGINS:
+        return email
+    return "hidden in the demo"
+
+
+# ---- brute-force throttle ----------------------------------------------------------------
+class Throttle:
+    """Sliding-window counter of failed attempts per key (client IP, account email, ...), in memory.
+    Each replica counts on its own, which is enough to make online password guessing impractical."""
+
+    def __init__(self, limit: int, window_s: float) -> None:
+        self.limit, self.window = limit, window_s
+        self._hits: dict[str, deque] = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def _trim(self, q: deque, now: float) -> None:
+        while q and now - q[0] > self.window:
+            q.popleft()
+
+    def blocked(self, *keys: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            for k in keys:
+                q = self._hits.get(k)
+                if q is not None:
+                    self._trim(q, now)
+                    if len(q) >= self.limit:
+                        return True
+            return False
+
+    def fail(self, *keys: str) -> None:
+        now = time.monotonic()
+        with self._lock:
+            if len(self._hits) > 50_000:  # bound memory under a flood of distinct keys
+                self._hits.clear()
+            for k in keys:
+                q = self._hits[k]
+                self._trim(q, now)
+                q.append(now)
+
+    def reset(self, *keys: str) -> None:
+        with self._lock:
+            for k in keys:
+                self._hits.pop(k, None)
+
+
+# Failed sign-ins: tight per client IP; looser per account, so a stranger cannot lock the instructor out
+# with a handful of guesses, yet a distributed guesser still gets only ~80 tries an hour per account.
+LOGIN_IP_THROTTLE = Throttle(limit=10, window_s=15 * 60)
+LOGIN_ACCOUNT_THROTTLE = Throttle(limit=20, window_s=15 * 60)
+SIGNUP_THROTTLE = Throttle(limit=8, window_s=60 * 60)    # failed join-code attempts per IP
+
+
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"

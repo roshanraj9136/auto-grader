@@ -21,10 +21,12 @@ from .ingest import git_ops
 from .jobs import JobManager
 from .models import GradeRequest, Rubric
 from .platform import api as platform_api
+from .platform import demo as platform_demo
+from .platform import instructor as platform_instructor
 from .platform import labs as platform_labs
 from .platform.db import get_db
 from .platform.seed import seed
-from .platform.security import session_user
+from .platform.security import require_instructor_write, session_user
 from .report import store
 from .tracing import METRICS
 
@@ -37,9 +39,13 @@ manager: JobManager | None = None
 
 
 async def _maintenance_loop() -> None:
-    """Heartbeat + reap dead replicas' submissions/clone dirs + repair lost state updates."""
+    """Heartbeat + reap dead replicas' submissions/clone dirs + repair lost state updates + prune old events."""
+    tick = 0
     while True:
+        tick += 1
         try:
+            if tick % 90 == 1:  # about every 30 minutes
+                await asyncio.to_thread(platform_api.prune_job_events)
             await asyncio.to_thread(platform_api.heartbeat)
             reaped = await asyncio.to_thread(platform_api.reap_dead_instances)
             if manager is not None:
@@ -70,14 +76,16 @@ async def lifespan(_: FastAPI):
     await asyncio.to_thread(db.init_schema, seed)
     await asyncio.to_thread(platform_api.heartbeat)
     docker_ok = await asyncio.to_thread(config.docker_available)  # warm the cached probe off the event loop
-    manager = JobManager()
+    manager = JobManager(event_sink=platform_api.store_job_events)
     manager.add_listener(platform_api.on_job_event)
     maintenance = asyncio.create_task(_maintenance_loop(), name="maintenance")
+    demo_task = asyncio.create_task(_grade_demo_class(), name="demo-class")
     log.info("AutoGrader+ %s ready | instance=%s db=%s llm=%s agent_model=%s judge_model=%s docker=%s",
              __version__, config.INSTANCE_ID, db.engine_name, llm_enabled(), config.AGENT_MODEL, config.JUDGE_MODEL,
              docker_ok)
     yield
     maintenance.cancel()
+    demo_task.cancel()
     await manager.shutdown()
     try:  # this replica's in-memory jobs die with it
         n = await asyncio.to_thread(platform_api.fail_orphaned_submissions)
@@ -154,14 +162,19 @@ class PlatformHeaders:
                 put("X-Served-By", config.INSTANCE_ID, override=True)  # visible in the load-balancer lab
                 put("X-Content-Type-Options", "nosniff")
                 put("Referrer-Policy", "same-origin")
+                put("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+                if config.COOKIE_SECURE:  # served over HTTPS: browsers must never fall back to plain HTTP
+                    put("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
                 if path == "/sandbox.html":
                     put("Content-Security-Policy", _SANDBOX_CSP, override=True)
                 elif path != "/docs" and not path.startswith("/redoc"):
                     put("Content-Security-Policy", _CSP)
                     put("X-Frame-Options", "SAMEORIGIN")
-                last = path.rsplit("/", 1)[-1]
-                if not path.startswith("/api") and ("." not in last or path.endswith(".html") or last == "sw.js"):
-                    put("Cache-Control", "no-cache", override=True)  # app shell: revalidate so deploys show at once
+                if not path.startswith("/api") and not path.startswith("/lb/"):
+                    if path.startswith(("/fonts/", "/icons/")):
+                        put("Cache-Control", "public, max-age=604800", override=True)
+                    else:  # app shell, scripts, styles: revalidate (cheap 304) so a deploy shows at once
+                        put("Cache-Control", "no-cache", override=True)
                 message = {**message, "headers": headers}
             await send(message)
 
@@ -301,6 +314,15 @@ async def grade_upload(
                                  rubric_notes=rubric_notes, force=force), user)
 
 
+def _assignment_grade_in(a: dict, repo_url: str, ref: str | None = None, dockerfile_text: str | None = None,
+                         force: bool = False) -> GradeIn:
+    """A grading request that uses the assignment's rubric weights and brief."""
+    # Rubric first: if the combined text has to be truncated, the description loses its tail, not the rubric.
+    notes = f"Rubric: {a['rubric_notes']}\n\nAssignment: {a['title']}\n{a['description']}".strip()
+    return GradeIn(repo_url=repo_url, ref=ref, dockerfile_text=dockerfile_text, weights=a["weights"],
+                   rubric_notes=notes[: config.MAX_RUBRIC_CHARS], force=force)
+
+
 @app.post("/api/assignments/{assignment_id}/submit", status_code=202)
 async def submit_assignment(assignment_id: int, body: SubmitIn, request: Request):
     """Submit a repository for an assignment: graded with the assignment's rubric weights and brief."""
@@ -308,11 +330,49 @@ async def submit_assignment(assignment_id: int, body: SubmitIn, request: Request
     if not user:
         raise HTTPException(status_code=401, detail="login required")
     a = await asyncio.to_thread(platform_api.get_assignment, assignment_id)
-    # Rubric first: if the combined text has to be truncated, the description loses its tail, not the rubric.
-    notes = f"Rubric: {a['rubric_notes']}\n\nAssignment: {a['title']}\n{a['description']}".strip()
-    return await _submit(GradeIn(repo_url=body.repo_url, ref=body.ref, dockerfile_text=body.dockerfile_text,
-                                 weights=a["weights"], rubric_notes=notes[: config.MAX_RUBRIC_CHARS], force=body.force),
+    return await _submit(_assignment_grade_in(a, body.repo_url, body.ref, body.dockerfile_text, body.force),
                          user, assignment_id)
+
+
+@app.post("/api/instructor/submissions/{submission_id}/regrade", status_code=202)
+async def regrade_submission(submission_id: int, _: dict = Depends(require_instructor_write)):
+    """Grade a student's submission again from scratch (same repository and ref, current rubric).
+    The new attempt is recorded for the student; their best attempt still counts."""
+    s = await asyncio.to_thread(platform_api.submission_row, submission_id)
+    student = {"id": s["user_id"]}
+    if s["assignment_id"] is None:
+        return await _submit(GradeIn(repo_url=s["repo_url"], ref=s["ref"], force=True), student)
+    a = await asyncio.to_thread(platform_api.get_assignment, s["assignment_id"])
+    return await _submit(_assignment_grade_in(a, s["repo_url"], s["ref"], force=True), student, s["assignment_id"])
+
+
+@app.post("/api/instructor/assignments/{assignment_id}/regrade")
+async def regrade_assignment(assignment_id: int, _: dict = Depends(require_instructor_write)):
+    """Re-run every student's latest submission with the assignment's current rubric (after changing weights).
+    Unchanged code with an unchanged rubric is answered from the result cache in about a second."""
+    a = await asyncio.to_thread(platform_api.get_assignment, assignment_id)
+    latest = await asyncio.to_thread(platform_api.latest_submissions, assignment_id)
+    queued = skipped = 0
+    for s in latest[:200]:
+        try:
+            await _submit(_assignment_grade_in(a, s["repo_url"], s["ref"]), {"id": s["user_id"]}, assignment_id)
+            queued += 1
+        except HTTPException:  # e.g. that student already has 3 gradings running
+            skipped += 1
+    return {"queued": queued, "skipped": skipped}
+
+
+async def _grade_demo_class() -> None:
+    """Showcase mode: grade the sample classmates' repositories in the background, one job at a time."""
+    try:
+        pending = await asyncio.to_thread(platform_demo.prepare_demo_class)
+        for user_id, a, repo in pending:
+            assignment = await asyncio.to_thread(platform_api.get_assignment, a["id"])
+            await _submit(_assignment_grade_in(assignment, repo), {"id": user_id}, assignment["id"])
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - the demo data is optional; never take the server down for it
+        log.exception("demo class seeding failed")
 
 
 @app.get("/api/jobs", dependencies=[Depends(require_operator)])
@@ -333,11 +393,15 @@ async def get_job(job_id: str):
 
 @app.get("/api/jobs/{job_id}/events", dependencies=[Depends(require_job_access)])
 async def job_events(job_id: str, request: Request):
-    """Server-Sent Events: full replay, then live stage/agent events until job_done/job_failed."""
+    """Server-Sent Events: full replay, then live stage/agent events until job_done/job_failed.
+    A job running on another replica (or before a restart) is streamed from the durable event log."""
     assert manager is not None
     job = manager.get(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="job not found")
+        if not await asyncio.to_thread(platform_api.job_known, job_id):
+            raise HTTPException(status_code=404, detail="job not found")
+        return StreamingResponse(_db_event_stream(job_id, request), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     async def gen():
         async for evt in job.stream():
@@ -350,6 +414,37 @@ async def job_events(job_id: str, request: Request):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+async def _db_event_stream(job_id: str, request: Request, poll_s: float = 0.5, max_s: float = 1800):
+    """Follow a job through the job_events table (written in order by the replica running it)."""
+    seq, waited, last_ping, idle_polls = -1, 0.0, 0.0, 0
+    while waited < max_s:
+        if await request.is_disconnected():
+            return
+        events = await asyncio.to_thread(platform_api.job_events_after, job_id, seq)
+        for evt in events:
+            seq = evt["seq"]
+            yield f"id: {seq}\ndata: {json.dumps(evt)}\n\n"
+            if evt["type"] in ("job_done", "job_failed"):
+                return
+        if events:
+            idle_polls = 0
+            continue
+        idle_polls += 1
+        if idle_polls % 10 == 1:  # about every 5 s: did the job end without a final event (its replica died)?
+            st = await asyncio.to_thread(platform_api.job_submission_state, job_id)
+            if st and st["status"] in ("done", "failed") \
+                    and not await asyncio.to_thread(platform_api.job_events_after, job_id, seq):
+                end = ({"type": "job_done", "final_score": st["final_score"], "grade": st["grade"]} if st["status"] == "done"
+                       else {"type": "job_failed", "error": st["error"] or "grading did not finish"})
+                yield f"data: {json.dumps({'seq': seq + 1, **end})}\n\n"
+                return
+        await asyncio.sleep(poll_s)
+        waited += poll_s
+        if waited - last_ping >= 15:
+            last_ping = waited
+            yield ": ping\n\n"
 
 
 _REPORT_MEDIA = {"md": "text/markdown; charset=utf-8", "html": "text/html; charset=utf-8", "json": "application/json"}
@@ -414,6 +509,7 @@ async def metrics():
 
 
 app.include_router(platform_api.router)
+app.include_router(platform_instructor.router)
 app.include_router(platform_labs.router)
 
 

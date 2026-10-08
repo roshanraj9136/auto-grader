@@ -1,9 +1,11 @@
 // AutoGrader+ single-page app: History-API router, role-aware layout, page modules (no build step).
-import { $, api, esc, homePath, icon, refreshMe, state, toast } from "./js/core.js";
+import { $, api, esc, homePath, icon, isReadOnly, refreshMe, state, toast } from "./js/core.js";
 import * as landing from "./js/pages/landing.js";
 import * as student from "./js/pages/student.js";
 import * as grader from "./js/pages/grader.js";
 import * as instructor from "./js/pages/instructor.js";
+import * as insights from "./js/pages/insights.js";
+import * as about from "./js/pages/about.js";
 import * as labs from "./js/pages/labs.js";
 import * as system from "./js/pages/system.js";
 
@@ -20,11 +22,15 @@ const ROUTES = [
   ["/student/profile", student.profile, "user", "Profile"],
   ["/labs", labs.index, "public", "Labs"],
   ["/labs/:lab", labs.lab, "public", "Lab"],
+  ["/how-it-works", about.page, "public", "How it works"],
   ["/grader", grader.page, "user", "Practice"],
   ["/jobs/:id", grader.job, "user", "Feedback"],
   ["/instructor/dashboard", instructor.dashboard, "instructor", "Class overview"],
   ["/instructor/assignments", instructor.assignments, "instructor", "Manage assignments"],
   ["/instructor/students", instructor.students, "instructor", "Students"],
+  ["/instructor/gradebook", insights.gradebook, "instructor", "Gradebook"],
+  ["/instructor/assignment/:id", insights.assignmentReport, "instructor", "Assignment analytics"],
+  ["/instructor/student/:id", insights.studentProfile, "instructor", "Student"],
   ["/system", system.page, "instructor", "Platform health"],
 ];
 
@@ -34,22 +40,24 @@ const NAV = {
       ["/labs", "Labs", "flask"], ["/grader", "Practice", "zap"]]],
     ["Your progress", [["/student/submissions", "My submissions", "list"], ["/student/leaderboard", "Leaderboard", "trophy"],
       ["/student/profile", "Profile", "user"]]],
+    ["About", [["/how-it-works", "How it works", "layers"]]],
   ],
   instructor: [
-    ["", [["/instructor/dashboard", "Overview", "chart"], ["/instructor/assignments", "Assignments", "book"],
-      ["/instructor/students", "Students", "users"]]],
+    ["", [["/instructor/dashboard", "Overview", "chart"], ["/instructor/gradebook", "Gradebook", "list"],
+      ["/instructor/students", "Students", "users"], ["/instructor/assignments", "Assignments", "book"]]],
     ["Course tools", [["/labs", "Labs", "flask"], ["/grader", "Practice grading", "zap"], ["/student/leaderboard", "Leaderboard", "trophy"]]],
-    ["Admin", [["/system", "Platform health", "activity"], ["/student/profile", "Profile", "user"]]],
+    ["Admin", [["/system", "Platform health", "activity"], ["/how-it-works", "How it works", "layers"], ["/student/profile", "Profile", "user"]]],
   ],
 };
 // Instructors work at a desk: their sections run across the top bar instead of a sidebar.
-const TABS = [["/instructor/dashboard", "Overview"], ["/instructor/students", "Students"], ["/instructor/assignments", "Assignments"],
-  ["/labs", "Labs"], ["/grader", "Practice grading"], ["/student/leaderboard", "Leaderboard"], ["/system", "Platform health"]];
+const TABS = [["/instructor/dashboard", "Overview"], ["/instructor/gradebook", "Gradebook"], ["/instructor/students", "Students"],
+  ["/instructor/assignments", "Assignments"], ["/labs", "Labs"], ["/grader", "Practice grading"], ["/student/leaderboard", "Leaderboard"],
+  ["/system", "Platform health"], ["/how-it-works", "How it works"]];
 const MOBILE = {
   student: [["/student/dashboard", "Home", "home"], ["/student/assignments", "Assignments", "book"], ["/labs", "Labs", "flask"],
     ["/student/submissions", "Results", "list"], ["/student/profile", "Profile", "user"]],
-  instructor: [["/instructor/dashboard", "Overview", "chart"], ["/instructor/assignments", "Assignments", "book"],
-    ["/instructor/students", "Students", "users"], ["/labs", "Labs", "flask"], ["/student/profile", "Profile", "user"]],
+  instructor: [["/instructor/dashboard", "Overview", "chart"], ["/instructor/gradebook", "Grades", "list"],
+    ["/instructor/students", "Students", "users"], ["/instructor/assignments", "Assignments", "book"], ["/student/profile", "Profile", "user"]],
 };
 
 let cleanup = null;
@@ -75,7 +83,21 @@ window.__nav = navigate;
 window.__refresh = () => render({ keepScroll: true, quiet: true });
 
 const isActive = (href, path) => path === href || (href !== "/" && path.startsWith(href + "/"))
-  || (href === "/student/assignments" && path.startsWith("/student/assignment/"));
+  || (href === "/student/assignments" && path.startsWith("/student/assignment/"))
+  || (href === "/instructor/assignments" && path.startsWith("/instructor/assignment/"))
+  || (href === "/instructor/students" && path.startsWith("/instructor/student/"));
+
+// The public demo instructor can look at everything but not change it: say so, and disable write controls.
+// (The server refuses those requests anyway; this only avoids confusing error messages.)
+function applyReadOnly(root) {
+  if (!isReadOnly()) return;
+  root.querySelectorAll("[data-write]").forEach((el) => {
+    el.setAttribute("aria-disabled", "true");
+    el.title = "Read-only demo: sign in with the real instructor account to make changes";
+    if (el.tagName === "A") { el.removeAttribute("href"); el.classList.add("is-disabled"); } else el.disabled = true;
+  });
+}
+window.__applyReadOnly = applyReadOnly;
 
 async function signOut() {
   await api("/api/auth/logout", { method: "POST" }).catch(() => {});
@@ -106,7 +128,8 @@ function renderShell() {
     $("#side-foot").innerHTML = `<div class="user-card"><a href="/student/profile" class="avatar" aria-label="Your profile">${esc(initials)}</a>
       <div class="who grow"><b>${esc(u.name)}</b><span>${role}</span></div>
       <button class="icon-btn" data-signout type="button" aria-label="Sign out" title="Sign out">${icon("logout")}</button></div>`;
-    $("#top-user").innerHTML = u.role === "instructor" ? `<a href="/student/profile" class="avatar" aria-label="Your profile" title="${esc(u.name)}">${esc(initials)}</a>
+    $("#top-user").innerHTML = u.role === "instructor" ? `${isReadOnly() ? '<span class="chip warn" title="Public demo account: nothing can be changed">Read-only demo</span>' : ""}
+      <a href="/student/profile" class="avatar" aria-label="Your profile" title="${esc(u.name)}">${esc(initials)}</a>
       <button class="icon-btn" data-signout type="button" aria-label="Sign out" title="Sign out">${icon("logout")}</button>` : "";
     $("#top-links").innerHTML = "";
     document.querySelectorAll("[data-signout]").forEach((b) => b.addEventListener("click", signOut));
@@ -116,7 +139,7 @@ function renderShell() {
     $("#side-foot").innerHTML = "";
     $("#role-tabs").innerHTML = "";
     $("#top-user").innerHTML = "";
-    $("#top-links").innerHTML = `<a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a><a href="/signup" class="btn sm">Create account</a>`;
+    $("#top-links").innerHTML = `<a href="/how-it-works">How it works</a><a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a><a href="/signup" class="btn sm">Create account</a>`;
   }
 }
 
@@ -125,6 +148,15 @@ function setThemeButton() {
   const b = $("#theme-btn");
   b.innerHTML = icon(dark ? "sun" : "moon");
   b.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+}
+
+function finishPage(view, route) {
+  if (!isReadOnly()) return;
+  if (route.access === "instructor" && !view.querySelector(".ro-note")) {
+    view.insertAdjacentHTML("afterbegin", `<div class="banner ro-note">${icon("shield")}<span><b>Read-only demo.</b> You can open every
+      instructor page, but grades and assignments can only be changed with the real instructor account.</span></div>`);
+  }
+  applyReadOnly(view);
 }
 
 async function render({ keepScroll = false, quiet = false } = {}) {
@@ -161,6 +193,7 @@ async function render({ keepScroll = false, quiet = false } = {}) {
       if (token !== navToken) { if (typeof result === "function") result(); return; }
       host.replaceChildren(view);
       cleanup = result;
+      finishPage(view, route);
       window.scrollTo(0, scrollY);
     } catch { /* keep the current content on a failed background refresh */ }
     return;
@@ -171,6 +204,7 @@ async function render({ keepScroll = false, quiet = false } = {}) {
     const result = await route.page(view, route.params, new URLSearchParams(location.search));
     if (token !== navToken) { if (typeof result === "function") result(); return; }
     cleanup = result;
+    finishPage(view, route);
   } catch (err) {
     if (token !== navToken) return;
     if (err.status === 401) { state.user = null; return navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true }); }

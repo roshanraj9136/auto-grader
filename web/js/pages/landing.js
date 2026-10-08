@@ -50,8 +50,8 @@ export async function home(view) {
         <ul>
           <li>${icon("check")}<span>Publish an assignment with its own rubric weights and deadline.</span></li>
           <li>${icon("check")}<span>See who hasn't started and who is scoring below 50, on one screen.</span></li>
-          <li>${icon("check")}<span>Spot the same repository submitted by more than one student.</span></li>
-          <li>${icon("check")}<span>Export the gradebook as a CSV whenever you need it.</span></li>
+          <li>${icon("check")}<span>Read each assignment's distribution, median and spread, and spot students who share a repository or commit.</span></li>
+          <li>${icon("check")}<span>Adjust a grade with a reason, re-run a submission, and export the gradebook as CSV.</span></li>
         </ul>
         <div class="row-btns"><a class="ghost" href="/login">Sign in as an instructor</a></div>
       </div>
@@ -60,7 +60,8 @@ export async function home(view) {
 
   <section class="l-sec"><div class="l-wrap">
     <h2 class="l-h">How a submission is marked</h2>
-    <p class="l-lead">The same four steps run for every repository, whether it's for an assignment or just practice.</p>
+    <p class="l-lead">The same four steps run for every repository, whether it's for an assignment or just practice.
+      <a href="/how-it-works">Read the full design, with latency numbers</a>.</p>
     <ol class="steps4">
       <li><h3>Download</h3><p>Your repo is cloned at the branch or commit you chose.</p></li>
       <li><h3>Read</h3><p>Languages, tests, Dockerfiles and config files are found and indexed.</p></li>
@@ -80,7 +81,7 @@ export async function home(view) {
     <a class="btn lg" href="/signup">Create a student account</a>
   </div></section>
   <footer class="l-footer"><div class="l-wrap"><span>AutoGrader+, a CSL100 group project</span>
-    <nav aria-label="Footer"><a href="/labs">Labs</a><a href="/login">Sign in</a></nav></div></footer>`;
+    <nav aria-label="Footer"><a href="/how-it-works">How it works</a><a href="/labs">Labs</a><a href="/login">Sign in</a></nav></div></footer>`;
 }
 
 function authLayout(view, title, sub, form) {
@@ -109,7 +110,8 @@ export async function login(view, _p, query) {
       <p class="hint" style="margin-top:16px">New here? <a href="/signup">Create a student account</a></p>
       ${state.demo ? `<div class="demo-box"><p>Or look around with a demo account:</p><div class="demo-btns">
         <button type="button" class="ghost" data-demo="student">${icon("user")} Student view</button>
-        <button type="button" class="ghost" data-demo="instructor">${icon("users")} Instructor view</button></div></div>` : ""}
+        <button type="button" class="ghost" data-demo="instructor">${icon("users")} Instructor view</button></div>
+        <p class="hint" style="margin:10px 0 0">The demo instructor is read-only: it can open every page but cannot change grades.</p></div>` : ""}
     </form>`);
   const submit = async (email, password) => {
     $("#err").textContent = "";

@@ -37,7 +37,7 @@ function subRow(s, { showAssignment = true } = {}) {
     <td class="repo hide-sm"><a href="${esc(s.repo_url)}" target="_blank" rel="noopener">${esc(repoShort(s.repo_url))}</a></td>
     <td class="${showAssignment ? "hide-sm" : ""}">${esc(fmtDate(s.created_at, true))}</td>
     <td class="hide-sm">${statusPill(s.status)}</td>
-    <td class="num">${gradeBadge(s.final_score, s.grade)}</td>
+    <td class="num">${gradeBadge(s.final_score, s.grade)}${s.override ? ` <span class="adj" title="${esc(s.override.reason)}">adjusted</span>` : ""}</td>
     <td class="actions">${feedbackLink(s)}</td>
   </tr>`;
 }
@@ -179,41 +179,12 @@ function rubricPanel(a, best) {
   </div>`;
 }
 
-/** Instructors open the same page to read the brief; they get class numbers instead of a submit form. */
-async function assignmentForInstructor(view, a, checks) {
-  const o = await api("/api/instructor/overview").catch(() => null);
-  const row = o?.assignments.find((x) => x.id === a.id);
-  const subs = (o?.recent || []).filter((s) => s.assignment_id === a.id);
-  view.innerHTML = `
-  ${pageHeader(`<a href="/instructor/assignments">Assignments</a> / ${esc(TRACKS[a.track] || a.track)}`, esc(a.title),
-    `${dueChip(a.due_at)} ${a.due_at ? `<span class="hint">${esc(fmtDate(a.due_at, true))}</span>` : ""}`,
-    `<a class="btn" href="/instructor/assignments?edit=${a.id}">${icon("edit")} Edit assignment</a>`)}
-  ${row ? `<section class="ledger" aria-label="Class results">
-    <div><span>Submitted</span><b>${row.students_submitted}<small>of ${o.counts.students} students</small></b></div>
-    <div><span>Completion</span><b>${Math.round(row.completion * 100)}%</b></div>
-    <div><span>Class average</span><b>${row.avg_best ?? "–"}</b></div>
-    <div><span>Top score</span><b>${row.max_best ?? "–"}</b></div>
-    <div><span>All attempts</span><b>${row.submissions}</b></div></section>` : ""}
-  <section class="grid-2-1">
-    <div class="panel"><h2>${icon("book")} The brief students see</h2><p>${esc(a.description)}</p>
-      ${checks.length ? `<h3>What will be checked</h3><ul class="checklist">${checks.map((c) => `<li>${icon("checkCircle")}<span>${esc(c)}</span></li>`).join("")}</ul>` : ""}</div>
-    ${rubricPanel(a, null)}
-  </section>
-  <section class="panel"><div class="panel-h"><h2>Latest submissions</h2><a href="/instructor/dashboard">Overview</a></div>
-    ${subs.length ? `<div class="table-wrap"><table><thead><tr><th>Student</th><th class="hide-sm">Repository</th><th>Submitted</th><th class="num">Score</th><th></th></tr></thead><tbody>
-      ${subs.map((s) => `<tr class="${s.shared_by > 1 ? "flagged" : ""}"><td><b>${esc(s.student)}</b>${s.entry_no ? `<span class="sub-l">${esc(s.entry_no)}</span>` : ""}</td>
-        <td class="repo hide-sm"><a href="${esc(s.repo_url)}" target="_blank" rel="noopener">${esc(repoShort(s.repo_url))}</a>${s.shared_by > 1 ? `<span class="chip bad">Same repo as ${s.shared_by - 1} other${s.shared_by > 2 ? "s" : ""}</span>` : ""}</td>
-        <td>${esc(fmtDate(s.created_at, true))}</td><td class="num">${gradeBadge(s.final_score, s.grade)}</td>
-        <td class="actions">${s.status === "done" ? `<a class="ghost sm" href="/jobs/${esc(s.job_id)}">Feedback</a>` : statusPill(s.status)}</td></tr>`).join("")}
-      </tbody></table></div>` : emptyState("No submissions yet", "Students' submissions for this assignment appear here.", "", "upload")}</section>`;
-  return null;
-}
-
 export async function assignment(view, { id }) {
+  // Instructors get the assignment's analytics page instead of a submit form.
+  if (state.user?.role === "instructor") { window.__nav(`/instructor/assignment/${encodeURIComponent(id)}`, { replace: true }); return null; }
   const a = await api(`/api/assignments/${encodeURIComponent(id)}`);
   const checks = (a.rubric_notes || "").split(/;|\n|\.\s/).map((x) => x.trim().replace(/\.$/, "")).filter((x) => x.length > 3)
     .map((c) => c.charAt(0).toUpperCase() + c.slice(1));
-  if (state.user?.role === "instructor") return assignmentForInstructor(view, a, checks);
   const subs = a.submissions || [];
   const best = subs.filter((s) => s.final_score != null).sort((x, y) => y.final_score - x.final_score)[0];
   const closed = a.due_at && new Date(a.due_at) < new Date();

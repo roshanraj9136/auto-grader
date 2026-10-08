@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import hmac
 import io
 import json
 import re
@@ -17,8 +18,14 @@ from ..report import store
 from .db import get_db, iso_ago, loads, now_iso, to_utc_iso
 from .labs import TASK_XP, total_tasks, user_progress, verified_tasks
 from .labs import SERVER_TASKS
-from .security import (authenticate, end_session, hash_password, optional_user, public_user, require_instructor,
-                       require_user, start_session, verify_password)
+from .security import (LOGIN_ACCOUNT_THROTTLE, LOGIN_IP_THROTTLE, SIGNUP_THROTTLE, authenticate, client_ip, end_session, hash_password,
+                       is_demo_account, optional_user, public_user, require_instructor, require_instructor_write,
+                       require_user, start_session, verify_password, visible_email)
+
+
+def _not_demo(user: dict, action: str) -> None:
+    if is_demo_account(user):
+        raise HTTPException(status_code=403, detail=f"The public demo account can't {action}. Sign in with your own account.")
 
 router = APIRouter()
 DIMENSIONS = list(config.DEFAULT_WEIGHTS)
@@ -87,8 +94,10 @@ def on_job_event(job: Job) -> None:
                    "learning_path": r.verdict.learning_path[:6], "commit_sha": r.commit_sha,
                    "llm_mode": r.llm_mode, "speedup": r.speedup, "stack": r.repo_stats.get("stack", []),
                    "languages": r.repo_stats.get("languages", {})}
+        # Rows an instructor has adjusted keep their adjusted score if the job state is ever replayed.
         db.run("UPDATE submissions SET status = 'done', final_score = ?, grade = ?, dims = ?, details = ?, total_ms = ?, "
-               "cache_hit = ?, error = NULL, finished_at = ? WHERE job_id = ?",
+               "cache_hit = ?, error = NULL, finished_at = ? WHERE job_id = ? "
+               "AND id NOT IN (SELECT submission_id FROM grade_overrides)",
                (r.verdict.final_score, r.verdict.grade, json.dumps(dims), json.dumps(details, default=str), r.total_ms,
                 1 if r.cache_hit else 0, now_iso(), job.id))
         persist_artifacts(job.id)
@@ -98,6 +107,42 @@ def on_job_event(job: Job) -> None:
     else:
         db.run("UPDATE submissions SET status = ? WHERE job_id = ? AND status IN ('queued', 'running')",
                (job.status, job.id))
+
+
+# ---------------------------------------------------------------------------- durable job events
+EVENT_RETENTION_S = 3 * 86400
+
+
+def store_job_events(batch: list[tuple[str, dict]]) -> None:
+    """JobManager event sink: append events in order, one transaction per batch."""
+    stamp = now_iso()
+    with get_db().tx() as t:
+        for job_id, evt in batch:
+            t.run("INSERT INTO job_events (job_id, seq, event, created_at) VALUES (?, ?, ?, ?) "
+                  "ON CONFLICT (job_id, seq) DO NOTHING", (job_id, int(evt["seq"]), json.dumps(evt, default=str), stamp))
+
+
+def job_events_after(job_id: str, seq: int, limit: int = 500) -> list[dict]:
+    rows = get_db().all("SELECT event FROM job_events WHERE job_id = ? AND seq > ? ORDER BY seq LIMIT ?",
+                        (job_id, seq, limit))
+    return [json.loads(r["event"]) for r in rows]
+
+
+def job_known(job_id: str) -> bool:
+    """A job this server can stream from the database: it has stored events or a submission row."""
+    db = get_db()
+    return bool(db.one("SELECT job_id FROM job_events WHERE job_id = ? LIMIT 1", (job_id,))
+                or db.one("SELECT id FROM submissions WHERE job_id = ? LIMIT 1", (job_id,)))
+
+
+def job_submission_state(job_id: str) -> dict | None:
+    """The saved outcome of a job (for streams whose replica died before writing a final event)."""
+    return get_db().one("SELECT status, final_score, grade, error FROM submissions WHERE job_id = ? ORDER BY id DESC LIMIT 1",
+                        (job_id,))
+
+
+def prune_job_events() -> int:
+    return get_db().run("DELETE FROM job_events WHERE created_at < ?", (iso_ago(EVENT_RETENTION_S),))
 
 
 def fail_orphaned_submissions() -> int:
@@ -148,12 +193,48 @@ def reconcile_own(jobs: dict[str, Job]) -> int:
 
 
 def _sub_out(r: dict) -> dict:
-    return {"id": r["id"], "job_id": r["job_id"], "assignment_id": r["assignment_id"],
+    return {"id": r["id"], "job_id": r["job_id"], "assignment_id": r["assignment_id"], "user_id": r.get("user_id"),
             "assignment_title": r.get("assignment_title"), "repo_url": r["repo_url"], "ref": r["ref"],
             "status": r["status"], "final_score": r["final_score"], "grade": r["grade"], "dims": loads(r["dims"], {}),
             "details": loads(r["details"], {}), "total_ms": r["total_ms"], "cache_hit": bool(r["cache_hit"]),
             "error": r["error"], "created_at": r["created_at"], "finished_at": r["finished_at"],
             "student": r.get("student_name"), "entry_no": r.get("entry_no")}
+
+
+def submission_row(submission_id: int) -> dict:
+    row = get_db().one("SELECT * FROM submissions WHERE id = ?", (submission_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="submission not found")
+    return row
+
+
+def latest_submissions(assignment_id: int) -> list[dict]:
+    """Each student's most recent submission for an assignment."""
+    rows = get_db().all("SELECT s.* FROM submissions s JOIN users u ON u.id = s.user_id AND u.role = 'student' "
+                        "WHERE s.assignment_id = ? ORDER BY s.created_at DESC, s.id DESC", (assignment_id,))
+    seen, out = set(), []
+    for r in rows:
+        if r["user_id"] not in seen:
+            seen.add(r["user_id"])
+            out.append(r)
+    return out
+
+
+def overrides_map() -> dict[int, dict]:
+    """Every instructor grade adjustment, keyed by submission id (a small table: one row per adjusted grade)."""
+    rows = get_db().all("SELECT o.submission_id, o.original_score, o.original_grade, o.score, o.grade, o.reason, "
+                        "o.created_at, u.name AS by_name FROM grade_overrides o LEFT JOIN users u ON u.id = o.by_user")
+    return {r["submission_id"]: r for r in rows}
+
+
+def with_overrides(subs: list[dict]) -> list[dict]:
+    """Attach `override` (or None) to submissions from `_sub_out`, so students see why a score was adjusted."""
+    ovr = overrides_map() if subs else {}
+    for s in subs:
+        o = ovr.get(s["id"])
+        s["override"] = None if not o else {k: o[k] for k in ("original_score", "original_grade", "reason", "by_name",
+                                                                 "created_at")}
+    return subs
 
 
 def _assignment_out(r: dict) -> dict:
@@ -184,11 +265,15 @@ class LoginIn(BaseModel):
 
 
 @router.post("/api/auth/signup", status_code=201)
-def signup(body: SignupIn, response: Response):
-    if config.SIGNUP_CODE and (body.code or "").strip() != config.SIGNUP_CODE:
+def signup(body: SignupIn, request: Request, response: Response):
+    ip = f"ip:{client_ip(request)}"
+    if SIGNUP_THROTTLE.blocked(ip):
+        raise HTTPException(status_code=429, detail="too many attempts; try again in an hour")
+    if config.SIGNUP_CODE and not hmac.compare_digest((body.code or "").strip().encode(), config.SIGNUP_CODE.encode()):
+        SIGNUP_THROTTLE.fail(ip)  # the join code must not be guessable by brute force
         raise HTTPException(status_code=403, detail="invalid class join code")
     email = body.email.strip().lower()
-    if not _EMAIL_RE.match(email):
+    if not _EMAIL_RE.match(email) or email.endswith("autograder.local"):  # reserved for the demo accounts
         raise HTTPException(status_code=422, detail="enter a valid email address")
     db = get_db()
     if db.one("SELECT id FROM users WHERE email = ?", (email,)):
@@ -201,9 +286,14 @@ def signup(body: SignupIn, response: Response):
 
 
 @router.post("/api/auth/login")
-def login(body: LoginIn, response: Response):
+def login(body: LoginIn, request: Request, response: Response):
+    ip, account = f"ip:{client_ip(request)}", f"email:{body.email.strip().lower()}"
+    if LOGIN_IP_THROTTLE.blocked(ip) or LOGIN_ACCOUNT_THROTTLE.blocked(account):
+        raise HTTPException(status_code=429, detail="too many failed sign-ins; wait 15 minutes and try again")
     user = authenticate(body.email, body.password)
     if not user:
+        LOGIN_IP_THROTTLE.fail(ip)
+        LOGIN_ACCOUNT_THROTTLE.fail(account)
         raise HTTPException(status_code=401, detail="wrong email or password")
     start_session(response, user["id"])
     return {"user": public_user(user)}
@@ -233,6 +323,7 @@ class PasswordIn(BaseModel):
 
 @router.put("/api/me")
 def update_profile(body: ProfileIn, user: dict = Depends(require_user)):
+    _not_demo(user, "change its profile")
     db = get_db()
     db.run("UPDATE users SET name = ?, entry_no = ? WHERE id = ?",
            (body.name.strip(), (body.entry_no or "").strip().upper() or None, user["id"]))
@@ -241,6 +332,7 @@ def update_profile(body: ProfileIn, user: dict = Depends(require_user)):
 
 @router.post("/api/me/password")
 def change_password(body: PasswordIn, request: Request, response: Response, user: dict = Depends(require_user)):
+    _not_demo(user, "change its password")
     if not verify_password(body.current, user["password_hash"]):
         raise HTTPException(status_code=403, detail="current password is wrong")
     db = get_db()
@@ -306,14 +398,14 @@ def list_assignments(user: dict | None = Depends(optional_user)):
 def assignment_detail(assignment_id: int, user: dict | None = Depends(optional_user)):
     a = get_assignment(assignment_id)
     if user:
-        a["submissions"] = [_sub_out(r) for r in get_db().all(
+        a["submissions"] = with_overrides([_sub_out(r) for r in get_db().all(
             "SELECT * FROM submissions WHERE user_id = ? AND assignment_id = ? ORDER BY created_at DESC, id DESC LIMIT 50",
-            (user["id"], assignment_id))]
+            (user["id"], assignment_id))])
     return a
 
 
 @router.post("/api/assignments", status_code=201)
-def create_assignment(body: AssignmentIn, user: dict = Depends(require_instructor)):
+def create_assignment(body: AssignmentIn, user: dict = Depends(require_instructor_write)):
     vals = _clean_assignment(body)
     aid = get_db().insert("INSERT INTO assignments (title, description, track, weights, rubric_notes, due_at, created_by, "
                           "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (*vals, user["id"], now_iso()))
@@ -321,7 +413,7 @@ def create_assignment(body: AssignmentIn, user: dict = Depends(require_instructo
 
 
 @router.put("/api/assignments/{assignment_id}")
-def update_assignment(assignment_id: int, body: AssignmentIn, _: dict = Depends(require_instructor)):
+def update_assignment(assignment_id: int, body: AssignmentIn, _: dict = Depends(require_instructor_write)):
     get_assignment(assignment_id)
     get_db().run("UPDATE assignments SET title = ?, description = ?, track = ?, weights = ?, rubric_notes = ?, due_at = ? "
                  "WHERE id = ?", (*_clean_assignment(body), assignment_id))
@@ -329,7 +421,7 @@ def update_assignment(assignment_id: int, body: AssignmentIn, _: dict = Depends(
 
 
 @router.delete("/api/assignments/{assignment_id}")
-def delete_assignment(assignment_id: int, _: dict = Depends(require_instructor)):
+def delete_assignment(assignment_id: int, _: dict = Depends(require_instructor_write)):
     get_assignment(assignment_id)
     with get_db().tx() as t:
         t.run("DELETE FROM submissions WHERE assignment_id = ?", (assignment_id,))
@@ -430,7 +522,7 @@ def student_dashboard(user: dict = Depends(require_user)):
         "timeline": [{"t": s["created_at"], "score": s["final_score"], "grade": s["grade"],
                       "label": s["assignment_title"] or "Practice"} for s in reversed(done[:30])],
         "skills": skill_avg,
-        "recent": [_sub_out(s) for s in subs[:10]],
+        "recent": with_overrides([_sub_out(s) for s in subs[:10]]),
         "assignments": assignments,
         "upcoming": upcoming,
         "learning_path": loads(latest["details"], {}).get("learning_path", []) if latest else [],
@@ -443,7 +535,7 @@ def student_dashboard(user: dict = Depends(require_user)):
 def my_submissions(limit: int = 50, user: dict = Depends(require_user)):
     rows = get_db().all("SELECT s.*, a.title AS assignment_title FROM submissions s LEFT JOIN assignments a ON a.id = s.assignment_id "
                         "WHERE s.user_id = ? ORDER BY s.created_at DESC, s.id DESC LIMIT ?", (user["id"], max(1, min(limit, 200))))
-    return [_sub_out(r) for r in rows]
+    return with_overrides([_sub_out(r) for r in rows])
 
 
 @router.get("/api/submissions/by-job/{job_id}")
@@ -453,7 +545,7 @@ def submission_by_job(job_id: str, user: dict = Depends(require_user)):
                        (job_id, user["id"], user["role"]))
     if not row:
         raise HTTPException(status_code=404, detail="submission not found")
-    return _sub_out(row)
+    return with_overrides([_sub_out(row)])[0]
 
 
 # ---------------------------------------------------------------------------- instructor views
@@ -512,14 +604,15 @@ def instructor_overview(_: dict = Depends(require_instructor)):
 
 
 @router.get("/api/instructor/students")
-def instructor_students(_: dict = Depends(require_instructor)):
+def instructor_students(viewer: dict = Depends(require_instructor)):
     lb = {r["user_id"]: r for r in leaderboard_rows(10_000)}
     rows = get_db().all("SELECT u.id, u.name, u.email, u.entry_no, u.created_at, COUNT(s.id) AS submissions, "
                         "MAX(s.created_at) AS last_active FROM users u LEFT JOIN submissions s ON s.user_id = u.id "
                         "WHERE u.role = 'student' GROUP BY u.id, u.name, u.email, u.entry_no, u.created_at ORDER BY u.name")
     for r in rows:
         x = lb.get(r["id"], {})
-        r.update(xp=x.get("xp", 0), rank=x.get("rank"), avg_best=x.get("avg_best"), labs_done=x.get("labs_done", 0))
+        r.update(xp=x.get("xp", 0), rank=x.get("rank"), avg_best=x.get("avg_best"), labs_done=x.get("labs_done", 0),
+                 email=visible_email(viewer, r["email"]))
     return rows
 
 
@@ -530,7 +623,7 @@ def _csv_safe(v) -> str:
 
 
 @router.get("/api/instructor/gradebook.csv")
-def gradebook_csv(_: dict = Depends(require_instructor)):
+def gradebook_csv(viewer: dict = Depends(require_instructor)):
     db = get_db()
     assignments = db.all("SELECT id, title FROM assignments ORDER BY COALESCE(due_at, created_at), id")
     best: dict[int, dict[int, float]] = defaultdict(dict)
@@ -543,7 +636,7 @@ def gradebook_csv(_: dict = Depends(require_instructor)):
     for u in db.all("SELECT id, name, entry_no, email FROM users WHERE role = 'student' ORDER BY name"):
         scores = [best[u["id"]].get(a["id"]) for a in assignments]
         got = [s for s in scores if s is not None]
-        w.writerow([_csv_safe(u["name"]), _csv_safe(u["entry_no"]), _csv_safe(u["email"]),
+        w.writerow([_csv_safe(u["name"]), _csv_safe(u["entry_no"]), _csv_safe(visible_email(viewer, u["email"])),
                     *["" if s is None else s for s in scores], round(sum(got) / len(got), 1) if got else ""])
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv; charset=utf-8",
                              headers={"Content-Disposition": 'attachment; filename="autograder-gradebook.csv"'})
