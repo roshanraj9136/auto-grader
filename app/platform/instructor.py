@@ -13,8 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..agents.judge import letter_grade
-from .api import DIMENSIONS, GRADES, _sub_out, get_assignment, leaderboard_rows, overrides_map, with_overrides
-from .db import get_db, loads, now_iso
+from .api import (DIMENSIONS, GRADES, _sub_out, get_assignment, leaderboard_rows, overrides_map, pinned_grades,
+                  with_overrides)
+from .db import get_db, iso_ago, loads, now_iso
 from .labs import user_progress
 from .security import require_instructor, require_instructor_write, visible_email
 
@@ -74,6 +75,11 @@ def gradebook(viewer: dict = Depends(require_instructor)):
         if r["status"] == "done" and r["final_score"] is not None and (c["best"] is None or r["final_score"] > c["best"]):
             c.update(best=r["final_score"], grade=r["grade"], job_id=r["job_id"],
                      late=_late(r["created_at"], due.get(r["assignment_id"])), adjusted=r["id"] in adjusted)
+    for (uid, aid), pin in pinned_grades().items():  # an adjusted grade is the grade, whatever else was submitted
+        c = cells.get(uid, {}).get(aid)
+        if c is not None:
+            c.update(best=pin["final_score"], grade=pin["grade"], job_id=pin["job_id"],
+                     late=_late(pin["created_at"], due.get(aid)), adjusted=True)
     students = []
     for u in _students():
         mine = cells.get(u["id"], {})
@@ -120,6 +126,10 @@ def assignment_analytics(assignment_id: int):
         if s["status"] == "done" and s["final_score"] is not None and (p["best"] is None or s["final_score"] > p["best"]["final_score"]):
             p["best"] = summary
         by_day[(s["created_at"] or "")[:10]] += 1
+    by_id = {s["id"]: s for s in subs}
+    for (uid, aid), pin in pinned_grades().items():
+        if aid == assignment_id and uid in per and pin["id"] in by_id:
+            per[uid]["best"] = _sub_summary(by_id[pin["id"]], a["due_at"], adjusted)
 
     bests = [p["best"] for p in per.values() if p["best"]]
     scores = [b["final_score"] for b in bests]
@@ -189,15 +199,20 @@ def student_profile(user_id: int, viewer: dict = Depends(require_instructor)):
         for d, v in loads(s["dims"], {}).items():
             skills[d].append(v)
     per_assignment = []
+    pins = pinned_grades(user_id)
+    adjusted = overrides_map()
     for a in _assignments():
         mine = [s for s in subs if s["assignment_id"] == a["id"]]
         graded = [s for s in mine if s["status"] == "done" and s["final_score"] is not None]
-        best = max(graded, key=lambda s: s["final_score"]) if graded else None
+        best = pins.get((user_id, a["id"])) or (max(graded, key=lambda s: s["final_score"]) if graded else None)
+        o = adjusted.get(best["id"]) if best else None
         per_assignment.append({**a, "attempts": len(mine), "best": best["final_score"] if best else None,
                                "grade": best["grade"] if best else None, "job_id": best["job_id"] if best else None,
                                "submission_id": best["id"] if best else None,
                                "late": _late(best["created_at"], a["due_at"]) if best else False,
-                               "last_at": mine[0]["created_at"] if mine else None})
+                               "last_at": mine[0]["created_at"] if mine else None,
+                               "override": None if not o else {"original_score": o["original_score"], "reason": o["reason"],
+                                                               "by_name": o["by_name"]}})
     lb = next((r for r in leaderboard_rows(10_000) if r["user_id"] == user_id), {})
     progress = user_progress(user_id)
     best_scores = [p["best"] for p in per_assignment if p["best"] is not None]
@@ -225,24 +240,25 @@ class OverrideIn(BaseModel):
 @router.post("/submissions/{submission_id}/override")
 def override_grade(submission_id: int, body: OverrideIn, user: dict = Depends(require_instructor_write)):
     """Set a graded submission's score by hand (e.g. after reviewing it). The original is kept for revert."""
-    db = get_db()
-    s = db.one("SELECT id, status, final_score, grade FROM submissions WHERE id = ?", (submission_id,))
-    if not s:
-        raise HTTPException(status_code=404, detail="submission not found")
-    if s["status"] != "done" or s["final_score"] is None:
-        raise HTTPException(status_code=409, detail="only graded submissions can be adjusted")
     score = round(body.score, 1)
     grade = letter_grade(score)
     reason = body.reason.strip()
-    with db.tx() as t:
-        prev = t.one("SELECT original_score, original_grade FROM grade_overrides WHERE submission_id = ?", (submission_id,))
-        original = (prev["original_score"], prev["original_grade"]) if prev else (s["final_score"], s["grade"])
-        t.run("DELETE FROM grade_overrides WHERE submission_id = ?", (submission_id,))
+    with get_db().tx() as t:
+        s = t.one("SELECT id, status, final_score, grade FROM submissions WHERE id = ?", (submission_id,))
+        if not s:
+            raise HTTPException(status_code=404, detail="submission not found")
+        if s["status"] != "done" or s["final_score"] is None:
+            raise HTTPException(status_code=409, detail="only graded submissions can be adjusted")
+        # Upsert in one statement: a concurrent second save updates the row instead of failing on the primary key,
+        # and the original score recorded by the first adjustment is never overwritten.
         t.run("INSERT INTO grade_overrides (submission_id, original_score, original_grade, score, grade, reason, by_user, "
-              "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (submission_id, *original, score, grade, reason, user["id"], now_iso()))
+              "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (submission_id) DO UPDATE SET score = excluded.score, "
+              "grade = excluded.grade, reason = excluded.reason, by_user = excluded.by_user, created_at = excluded.created_at",
+              (submission_id, s["final_score"], s["grade"], score, grade, reason, user["id"], now_iso()))
+        o = t.one("SELECT original_score, original_grade FROM grade_overrides WHERE submission_id = ?", (submission_id,))
         t.run("UPDATE submissions SET final_score = ?, grade = ? WHERE id = ?", (score, grade, submission_id))
     return {"ok": True, "submission_id": submission_id, "score": score, "grade": grade,
-            "original_score": original[0], "original_grade": original[1]}
+            "original_score": o["original_score"], "original_grade": o["original_grade"]}
 
 
 @router.delete("/submissions/{submission_id}/override")

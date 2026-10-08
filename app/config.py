@@ -58,7 +58,10 @@ REQUIRE_LOGIN = os.getenv("AUTOGRADER_REQUIRE_LOGIN", "1") == "1"   # grading ne
 DEMO_SEED = os.getenv("AUTOGRADER_DEMO_SEED", "1") == "1"           # demo accounts + sample assignments on first run
 SESSION_TTL_HOURS = int(os.getenv("AUTOGRADER_SESSION_TTL_HOURS", "72"))
 COOKIE_SECURE = os.getenv("AUTOGRADER_COOKIE_SECURE", "0") == "1"   # set to 1 behind HTTPS
-SIGNUP_CODE = os.getenv("AUTOGRADER_SIGNUP_CODE", "").strip()        # optional class join code for self sign-up
+SIGNUP_CODE = os.getenv("AUTOGRADER_SIGNUP_CODE", "").strip()
+# Header set by the edge proxy with the real client IP (e.g. cf-connecting-ip on Render, behind Cloudflare). If unset,
+# the right-most X-Forwarded-For entry is used: it is the one added by the closest proxy, so a client cannot forge it.
+CLIENT_IP_HEADER = os.getenv("AUTOGRADER_CLIENT_IP_HEADER", "").strip().lower()        # optional class join code for self sign-up
 INSTRUCTOR_EMAIL = os.getenv("AUTOGRADER_INSTRUCTOR_EMAIL", "").strip().lower()
 INSTRUCTOR_PASSWORD = os.getenv("AUTOGRADER_INSTRUCTOR_PASSWORD", "")
 

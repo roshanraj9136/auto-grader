@@ -43,7 +43,7 @@ Without `ANTHROPIC_API_KEY` the reviewers use rule-based scorers through the sam
 | [docs/AutoGrader.pptx](docs/AutoGrader.pptx) / [PDF](docs/AutoGrader-Slides.pdf) | Slides with speaker notes |
 | `/docs` on any instance | Interactive API reference |
 
-Rebuild the report and slides with `python docs/build_report.py` and `python docs/build_slides.py`. Measure the pipeline with `python scripts/latency_benchmark.py <repo-url>`, and verify access control with `scripts/security_check.py` (47 checks).
+Rebuild the report and slides with `python docs/build_report.py` and `python docs/build_slides.py`. Measure the pipeline with `python scripts/latency_benchmark.py <repo-url>`, and verify access control with `scripts/security_check.py` (51 checks).
 
 ## Project layout
 

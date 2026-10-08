@@ -10,6 +10,10 @@ const LABS = [
 
 const SAMPLE = [["Code quality", 8.1, "g-a"], ["Architecture", 7.9, "g-a"], ["Security", 6.2, "g-c"], ["Testing", 5.4, "g-c"], ["Docker", 8.4, "g-a"]];
 
+// A public demo takes no real sign-ups: its calls to action open the demo accounts instead.
+const startHref = () => (state.demo ? "/login" : "/signup");
+const startText = () => (state.demo ? "Open the demo" : "Create a student account");
+
 export async function home(view) {
   view.innerHTML = `
   <section class="l-hero"><div class="l-wrap">
@@ -18,10 +22,10 @@ export async function home(view) {
       <p class="lead">AutoGrader+ reads your whole GitHub repo, from the frontend to the Dockerfile, and gives back a score,
         the exact files to fix, and what to learn next. Usually in under a minute.</p>
       <div class="cta">
-        <a class="btn lg" href="/signup">Create a student account</a>
-        <a class="ghost lg" href="/login">Sign in</a>
+        <a class="btn lg" href="${startHref()}">${startText()}</a>
+        <a class="ghost lg" href="/how-it-works">How it works</a>
       </div>
-      ${state.demo ? `<p class="demo">Just looking? Sign in with <code>student@autograder.local</code> and <code>student123</code>.</p>` : ""}
+      ${state.demo ? `<p class="demo">This is a public demo: sign in as a student, or as a read-only instructor.</p>` : ""}
     </div>
     <figure class="sheet-demo" aria-label="Example feedback for a student's REST API: 76 out of 100, grade B">
       <div class="sd-top"><code>aarav-s/campus-events-api</code><span>commit 3f9c2a1</span></div>
@@ -43,7 +47,7 @@ export async function home(view) {
           <li>${icon("check")}<span>Resubmit as often as you like. Your best score counts.</span></li>
           <li>${icon("check")}<span>Practise SQL, load balancers, networks and Docker in the labs.</span></li>
         </ul>
-        <div class="row-btns"><a class="btn" href="/signup">Create a student account</a></div>
+        <div class="row-btns"><a class="btn" href="${startHref()}">${state.demo ? "Open the student view" : "Create a student account"}</a></div>
       </div>
       <div class="role teach">
         <h3>For instructors</h3><p class="role-who">Set the work, then watch the class.</p>
@@ -77,8 +81,9 @@ export async function home(view) {
   </div></section>
 
   <section class="l-end"><div class="l-wrap">
-    <div><h2>Your first feedback is a minute away.</h2><p>Sign up with your class join code and submit a repository.</p></div>
-    <a class="btn lg" href="/signup">Create a student account</a>
+    <div><h2>Your first feedback is a minute away.</h2><p>${state.demo ? "Open the demo, pick an assignment and submit a public repository."
+      : "Sign up with your class join code and submit a repository."}</p></div>
+    <a class="btn lg" href="${startHref()}">${startText()}</a>
   </div></section>
   <footer class="l-footer"><div class="l-wrap"><span>AutoGrader+, a CSL100 group project</span>
     <nav aria-label="Footer"><a href="/how-it-works">How it works</a><a href="/labs">Labs</a><a href="/login">Sign in</a></nav></div></footer>`;
@@ -107,7 +112,7 @@ export async function login(view, _p, query) {
       <input id="password" type="password" autocomplete="current-password" required />
       <p class="error" id="err" role="alert"></p>
       <button class="btn block lg" type="submit">Sign in</button>
-      <p class="hint" style="margin-top:16px">New here? <a href="/signup">Create a student account</a></p>
+      ${state.demo ? "" : `<p class="hint" style="margin-top:16px">New here? <a href="/signup">Create a student account</a></p>`}
       ${state.demo ? `<div class="demo-box"><p>Or look around with a demo account:</p><div class="demo-btns">
         <button type="button" class="ghost" data-demo="student">${icon("user")} Student view</button>
         <button type="button" class="ghost" data-demo="instructor">${icon("users")} Instructor view</button></div>
@@ -136,6 +141,11 @@ export async function login(view, _p, query) {
 }
 
 export async function signup(view) {
+  if (state.demo) {
+    authLayout(view, "Sign-up is off on this demo", "This public demo has ready-made accounts instead.",
+      `<div class="row-btns" style="margin-top:18px"><a class="btn lg" href="/login">Open the demo accounts</a></div>`);
+    return;
+  }
   authLayout(view, "Create your account", "Join your class to submit assignments and track your progress.", `
     <form id="signup-form" class="form" novalidate>
       <label for="name">Full name</label>

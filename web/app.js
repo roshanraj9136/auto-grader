@@ -139,7 +139,8 @@ function renderShell() {
     $("#side-foot").innerHTML = "";
     $("#role-tabs").innerHTML = "";
     $("#top-user").innerHTML = "";
-    $("#top-links").innerHTML = `<a href="/how-it-works">How it works</a><a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a><a href="/signup" class="btn sm">Create account</a>`;
+    $("#top-links").innerHTML = `<a href="/how-it-works">How it works</a><a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a>`
+      + (state.demo ? "" : `<a href="/signup" class="btn sm">Create account</a>`);
   }
 }
 

@@ -180,9 +180,17 @@ class Throttle:
 # Failed sign-ins: tight per client IP; looser per account, so a stranger cannot lock the instructor out
 # with a handful of guesses, yet a distributed guesser still gets only ~80 tries an hour per account.
 LOGIN_IP_THROTTLE = Throttle(limit=10, window_s=15 * 60)
-LOGIN_ACCOUNT_THROTTLE = Throttle(limit=20, window_s=15 * 60)
-SIGNUP_THROTTLE = Throttle(limit=8, window_s=60 * 60)    # failed join-code attempts per IP
+LOGIN_ACCOUNT_THROTTLE = Throttle(limit=100, window_s=15 * 60)
+SIGNUP_THROTTLE = Throttle(limit=8, window_s=60 * 60)    # failed join-code attempts per IP...
+SIGNUP_GLOBAL_THROTTLE = Throttle(limit=200, window_s=60 * 60)  # ...and in total, however many IPs are used
 
 
 def client_ip(request: Request) -> str:
+    """The caller's address for throttling. Never the left-most X-Forwarded-For entry: the client writes that one."""
+    if config.CLIENT_IP_HEADER:  # set by the edge proxy on every request; never fall back to client-written headers
+        v = (request.headers.get(config.CLIENT_IP_HEADER) or "").strip()
+        return v[:64] if v else (request.client.host if request.client else "unknown")
+    hops = [h.strip() for h in (request.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
+    if hops:
+        return hops[-1][:64]
     return request.client.host if request.client else "unknown"

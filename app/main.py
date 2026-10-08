@@ -25,6 +25,7 @@ from .platform import demo as platform_demo
 from .platform import instructor as platform_instructor
 from .platform import labs as platform_labs
 from .platform.db import get_db
+from .platform.db import iso_ago as platform_iso_ago
 from .platform.seed import seed
 from .platform.security import require_instructor_write, session_user
 from .report import store
@@ -340,8 +341,11 @@ async def regrade_submission(submission_id: int, _: dict = Depends(require_instr
     The new attempt is recorded for the student; their best attempt still counts."""
     s = await asyncio.to_thread(platform_api.submission_row, submission_id)
     student = {"id": s["user_id"]}
-    if s["assignment_id"] is None:
-        return await _submit(GradeIn(repo_url=s["repo_url"], ref=s["ref"], force=True), student)
+    if s["assignment_id"] is None:  # a practice run's custom rubric is not stored, so it cannot be repeated faithfully
+        raise HTTPException(status_code=409, detail="practice runs cannot be re-run; only assignment submissions can")
+    if await asyncio.to_thread(_used_uploaded_dockerfile, s["job_id"]):
+        raise HTTPException(status_code=409, detail="this submission used an uploaded Dockerfile, which is not stored; "
+                                                    "ask the student to submit again")
     a = await asyncio.to_thread(platform_api.get_assignment, s["assignment_id"])
     return await _submit(_assignment_grade_in(a, s["repo_url"], s["ref"], force=True), student, s["assignment_id"])
 
@@ -354,6 +358,9 @@ async def regrade_assignment(assignment_id: int, _: dict = Depends(require_instr
     latest = await asyncio.to_thread(platform_api.latest_submissions, assignment_id)
     queued = skipped = 0
     for s in latest[:200]:
+        if await asyncio.to_thread(_used_uploaded_dockerfile, s["job_id"]):
+            skipped += 1
+            continue
         try:
             await _submit(_assignment_grade_in(a, s["repo_url"], s["ref"]), {"id": s["user_id"]}, assignment_id)
             queued += 1
@@ -362,17 +369,31 @@ async def regrade_assignment(assignment_id: int, _: dict = Depends(require_instr
     return {"queued": queued, "skipped": skipped}
 
 
+def _used_uploaded_dockerfile(job_id: str) -> bool:
+    """True if the job graded a Dockerfile that was uploaded with the request (and is therefore not in the repo)."""
+    path = store.artifact_path(job_id, "json")
+    text = path.read_text(encoding="utf-8") if path else platform_api.artifact_from_db(job_id, "json")
+    try:
+        return (json.loads(text or "{}").get("docker") or {}).get("dockerfile_source") == "uploaded"
+    except (ValueError, AttributeError):
+        return False
+
+
 async def _grade_demo_class() -> None:
     """Showcase mode: grade the sample classmates' repositories in the background, one job at a time."""
     try:
         pending = await asyncio.to_thread(platform_demo.prepare_demo_class)
-        for user_id, a, repo in pending:
-            assignment = await asyncio.to_thread(platform_api.get_assignment, a["id"])
-            await _submit(_assignment_grade_in(assignment, repo), {"id": user_id}, assignment["id"])
-    except asyncio.CancelledError:
-        raise
     except Exception:  # noqa: BLE001 - the demo data is optional; never take the server down for it
         log.exception("demo class seeding failed")
+        return
+    for user_id, a, repo in pending:
+        try:
+            assignment = await asyncio.to_thread(platform_api.get_assignment, a["id"])
+            await _submit(_assignment_grade_in(assignment, repo), {"id": user_id}, assignment["id"])
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - one bad item (e.g. a busy demo student) must not stop the rest
+            log.warning("demo class: could not queue %s for user %s", repo, user_id, exc_info=True)
 
 
 @app.get("/api/jobs", dependencies=[Depends(require_operator)])
@@ -434,7 +455,10 @@ async def _db_event_stream(job_id: str, request: Request, poll_s: float = 0.5, m
         idle_polls += 1
         if idle_polls % 10 == 1:  # about every 5 s: did the job end without a final event (its replica died)?
             st = await asyncio.to_thread(platform_api.job_submission_state, job_id)
-            if st and st["status"] in ("done", "failed") \
+            # The row is marked done just before the final events are written, so only treat it as the end
+            # once it finished a while ago and still nothing new arrived (the replica running it died).
+            ended_long_ago = bool(st and st["finished_at"] and st["finished_at"] < platform_iso_ago(15))
+            if st and st["status"] in ("done", "failed") and ended_long_ago \
                     and not await asyncio.to_thread(platform_api.job_events_after, job_id, seq):
                 end = ({"type": "job_done", "final_score": st["final_score"], "grade": st["grade"]} if st["status"] == "done"
                        else {"type": "job_failed", "error": st["error"] or "grading did not finish"})

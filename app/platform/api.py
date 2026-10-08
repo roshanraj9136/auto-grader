@@ -18,7 +18,7 @@ from ..report import store
 from .db import get_db, iso_ago, loads, now_iso, to_utc_iso
 from .labs import TASK_XP, total_tasks, user_progress, verified_tasks
 from .labs import SERVER_TASKS
-from .security import (LOGIN_ACCOUNT_THROTTLE, LOGIN_IP_THROTTLE, SIGNUP_THROTTLE, authenticate, client_ip, end_session, hash_password,
+from .security import (LOGIN_ACCOUNT_THROTTLE, LOGIN_IP_THROTTLE, SIGNUP_GLOBAL_THROTTLE, SIGNUP_THROTTLE, authenticate, client_ip, end_session, hash_password,
                        is_demo_account, optional_user, public_user, require_instructor, require_instructor_write,
                        require_user, start_session, verify_password, visible_email)
 
@@ -137,7 +137,8 @@ def job_known(job_id: str) -> bool:
 
 def job_submission_state(job_id: str) -> dict | None:
     """The saved outcome of a job (for streams whose replica died before writing a final event)."""
-    return get_db().one("SELECT status, final_score, grade, error FROM submissions WHERE job_id = ? ORDER BY id DESC LIMIT 1",
+    return get_db().one("SELECT status, final_score, grade, error, finished_at FROM submissions WHERE job_id = ? "
+                        "ORDER BY id DESC LIMIT 1",
                         (job_id,))
 
 
@@ -227,6 +228,20 @@ def overrides_map() -> dict[int, dict]:
     return {r["submission_id"]: r for r in rows}
 
 
+def pinned_grades(user_id: int | None = None) -> dict[tuple[int, int], dict]:
+    """(student, assignment) -> the instructor-adjusted submission. An adjustment *is* the student's grade for that
+    assignment (it replaces their best attempt, including later resubmissions) until the instructor restores it."""
+    sql = ("SELECT s.id, s.user_id, s.assignment_id, s.job_id, s.final_score, s.grade, s.created_at FROM grade_overrides o "
+           "JOIN submissions s ON s.id = o.submission_id JOIN users u ON u.id = s.user_id AND u.role = 'student' "
+           "WHERE s.assignment_id IS NOT NULL AND s.status = 'done'")
+    args: tuple = ()
+    if user_id is not None:
+        sql += " AND s.user_id = ?"
+        args = (user_id,)
+    rows = get_db().all(sql + " ORDER BY o.created_at, o.submission_id", args)
+    return {(r["user_id"], r["assignment_id"]): r for r in rows}  # the latest adjustment wins
+
+
 def with_overrides(subs: list[dict]) -> list[dict]:
     """Attach `override` (or None) to submissions from `_sub_out`, so students see why a score was adjusted."""
     ovr = overrides_map() if subs else {}
@@ -266,11 +281,15 @@ class LoginIn(BaseModel):
 
 @router.post("/api/auth/signup", status_code=201)
 def signup(body: SignupIn, request: Request, response: Response):
+    # A public demo publishes an instructor login, so real students must not put their data on it.
+    if config.DEMO_SEED:
+        raise HTTPException(status_code=403, detail="sign-up is turned off on this public demo; use a demo account to sign in")
     ip = f"ip:{client_ip(request)}"
-    if SIGNUP_THROTTLE.blocked(ip):
+    if SIGNUP_THROTTLE.blocked(ip) or SIGNUP_GLOBAL_THROTTLE.blocked("all"):
         raise HTTPException(status_code=429, detail="too many attempts; try again in an hour")
     if config.SIGNUP_CODE and not hmac.compare_digest((body.code or "").strip().encode(), config.SIGNUP_CODE.encode()):
         SIGNUP_THROTTLE.fail(ip)  # the join code must not be guessable by brute force
+        SIGNUP_GLOBAL_THROTTLE.fail("all")
         raise HTTPException(status_code=403, detail="invalid class join code")
     email = body.email.strip().lower()
     if not _EMAIL_RE.match(email) or email.endswith("autograder.local"):  # reserved for the demo accounts
@@ -308,7 +327,7 @@ def logout(request: Request, response: Response):
 @router.get("/api/auth/me")
 def me(user: dict | None = Depends(optional_user)):
     return {"user": public_user(user) if user else None, "signup_code_required": bool(config.SIGNUP_CODE),
-            "demo": config.DEMO_SEED}
+            "demo": config.DEMO_SEED, "signup_open": not config.DEMO_SEED}
 
 
 class ProfileIn(BaseModel):
@@ -385,7 +404,10 @@ def list_assignments(user: dict | None = Depends(optional_user)):
     if user:
         for r in db.all("SELECT assignment_id, COUNT(*) AS attempts, MAX(final_score) AS best, MAX(created_at) AS last_at "
                         "FROM submissions WHERE user_id = ? AND assignment_id IS NOT NULL GROUP BY assignment_id", (user["id"],)):
-            mine[r["assignment_id"]] = r
+            mine[r["assignment_id"]] = dict(r)
+        for (_, aid), pin in pinned_grades(user["id"]).items():
+            if aid in mine:
+                mine[aid]["best"] = pin["final_score"]
     for a in rows:
         s = stats.get(a["id"], {})
         a["class_stats"] = {"submissions": s.get("submissions", 0), "students": s.get("students", 0), "top": s.get("top")}
@@ -430,11 +452,14 @@ def delete_assignment(assignment_id: int, _: dict = Depends(require_instructor_w
 
 
 # ---------------------------------------------------------------------------- student views
-def _best_per_assignment(rows: list[dict]) -> dict[int, float]:
+def _best_per_assignment(rows: list[dict], pins: dict | None = None) -> dict[int, float]:
+    """Best graded attempt per assignment for one student's rows; instructor adjustments (pins) take precedence."""
     best: dict[int, float] = {}
     for r in rows:
         if r["status"] == "done" and r["assignment_id"] is not None and r["final_score"] is not None:
             best[r["assignment_id"]] = max(best.get(r["assignment_id"], 0.0), r["final_score"])
+    for (_, aid), pin in (pins or {}).items():
+        best[aid] = pin["final_score"]
     return best
 
 
@@ -460,6 +485,8 @@ def leaderboard_rows(limit: int = 50) -> list[dict]:
     for r in db.all("SELECT user_id, assignment_id, MAX(final_score) AS best FROM submissions "
                     "WHERE status = 'done' AND assignment_id IS NOT NULL GROUP BY user_id, assignment_id"):
         best[r["user_id"]][r["assignment_id"]] = r["best"]
+    for (uid, aid), pin in pinned_grades().items():
+        best[uid][aid] = pin["final_score"]
     labs: dict[int, int] = defaultdict(int)
     verified: dict[int, int] = defaultdict(int)
     for r in db.all("SELECT user_id, lab, task FROM lab_progress"):
@@ -494,7 +521,7 @@ def student_dashboard(user: dict = Depends(require_user)):
     subs = db.all("SELECT s.*, a.title AS assignment_title FROM submissions s LEFT JOIN assignments a ON a.id = s.assignment_id "
                   "WHERE s.user_id = ? ORDER BY s.created_at DESC, s.id DESC LIMIT 300", (user["id"],))
     done = [s for s in subs if s["status"] == "done" and s["final_score"] is not None]
-    best = _best_per_assignment(subs)
+    best = _best_per_assignment(subs, pinned_grades(user["id"]))
     progress = user_progress(user["id"])
     lab_tasks = sum(len(v) for v in progress.values())
     xp = _xp(best, verified_tasks(progress))
@@ -553,8 +580,11 @@ def submission_by_job(job_id: str, user: dict = Depends(require_user)):
 def instructor_overview(_: dict = Depends(require_instructor)):
     db = get_db()
     student_subs = "FROM submissions s JOIN users u ON u.id = s.user_id AND u.role = 'student'"
-    best_rows = db.all(f"SELECT s.user_id, s.assignment_id, MAX(s.final_score) AS best {student_subs} "
-                       "WHERE s.status = 'done' AND s.assignment_id IS NOT NULL GROUP BY s.user_id, s.assignment_id")
+    best_map = {(r["user_id"], r["assignment_id"]): r["best"] for r in db.all(
+        f"SELECT s.user_id, s.assignment_id, MAX(s.final_score) AS best {student_subs} "
+        "WHERE s.status = 'done' AND s.assignment_id IS NOT NULL GROUP BY s.user_id, s.assignment_id")}
+    best_map.update({k: pin["final_score"] for k, pin in pinned_grades().items()})
+    best_rows = [{"user_id": u, "assignment_id": a, "best": v} for (u, a), v in best_map.items()]
     from ..agents.judge import letter_grade  # local import keeps the platform layer decoupled from agents at import time
 
     dist = {g: 0 for g in GRADES}
@@ -630,6 +660,8 @@ def gradebook_csv(viewer: dict = Depends(require_instructor)):
     for r in db.all("SELECT user_id, assignment_id, MAX(final_score) AS best FROM submissions "
                     "WHERE status = 'done' AND assignment_id IS NOT NULL GROUP BY user_id, assignment_id"):
         best[r["user_id"]][r["assignment_id"]] = r["best"]
+    for (uid, aid), pin in pinned_grades().items():
+        best[uid][aid] = pin["final_score"]
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Name", "Entry No", "Email", *[a["title"] for a in assignments], "Average"])

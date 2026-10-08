@@ -458,17 +458,18 @@ def s_security():
             ["Secrets in student code", "9 scanner rules; values redacted before any prompt or report"],
             ["Untrusted Docker builds", "no network, 512 MB, 1 CPU, 256 pids, all caps dropped; opt-in only"],
             ["Stolen database", "scrypt password hashes; session tokens stored only as SHA-256"],
-            ["Students changing grades", "every instructor route checks the role on the server; no student endpoint writes a score"],
-            ["Password guessing", "sign-in throttled per IP and per account; join codes throttled; constant-time comparisons"],
-            ["Public demo misuse", "demo instructor is read-only on the server; real students' emails hidden from it"],
+            ["Students reading others' data", "every instructor route checks the role on the server; reports only for their owner"],
+            ["Password guessing", "throttled per client IP (Cloudflare header, never forgeable X-Forwarded-For) and per account"],
+            ["Public demo misuse", "sign-up closed in demo mode; demo instructor read-only on the server"],
+            ["Grade tampering", "adjusted grade pinned in every view until restored; no student endpoint writes a score"],
             ["Cross-site attacks", "SameSite + Secure cookies, cross-site request blocking, strict CSP, HSTS, no framing"],
             ["Spreadsheet injection", "CSV gradebook neutralises formulas"]]
-    table(s, 0.6, 1.5, 12.15, rows, [3.6, 8.55], size=12.5, row_h=0.47)
+    table(s, 0.6, 1.5, 12.15, rows, [3.6, 8.55], size=12.5, row_h=0.45)
     notes(s, "Security covers both the grader, which runs untrusted student code, and the platform. Repository input is restricted, "
              "secrets are redacted before anything reaches a model, and the Docker sandbox is locked down. On the platform side, "
              "roles are checked on the server for every instructor action, so a student cannot change any grade, sign-in is "
              "throttled against password guessing, and the public demo instructor cannot change anything. We verified these with "
-             "an automated script of 47 checks.")
+             "an automated script of 51 checks.")
 
 
 def s_student():

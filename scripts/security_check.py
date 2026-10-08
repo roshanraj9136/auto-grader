@@ -4,8 +4,9 @@
         uvicorn app.main:app --port 8000          # wait until the demo class has been graded, then:
     REAL_EMAIL=teacher@college.edu REAL_PASSWORD=... python scripts/security_check.py http://127.0.0.1:8000
 
-Use a local or staging server: the brute-force check locks the caller's IP out of sign-in for 15 minutes,
-and the signup checks create two student accounts.
+Use a local or staging server: the brute-force check locks the caller's IP out of sign-in for 15 minutes, and two
+checks queue real gradings. Locally, start uvicorn with --no-proxy-headers and AUTOGRADER_CLIENT_IP_HEADER=cf-connecting-ip
+so it trusts client addresses the way production does.
 """
 import http.cookiejar
 import json
@@ -113,6 +114,32 @@ check("override requires a reason", c == 422, c)
 c, r = real("DELETE", f"/api/instructor/submissions/{sid}/override")
 check("real instructor can revert", c == 200, f"{c} {r}")
 
+# --- an adjustment is the assignment grade, even when another attempt scored higher
+uid = next(p["user_id"] for p in subs["students"] if p.get("best") and p["best"]["id"] == sid)
+c, r = real("POST", f"/api/instructor/submissions/{sid}/regrade")
+check("real instructor can re-run a submission", c == 202, f"{c} {r}")
+for _ in range(60):  # wait for the second attempt to be graded
+    _, r = real("GET", "/api/instructor/assignments/1")
+    p = next(x for x in r["students"] if x["user_id"] == uid)
+    if p["attempts"] >= 2 and p["latest"]["status"] in ("done", "failed"):
+        break
+    time.sleep(2)
+c, r = real("POST", f"/api/instructor/submissions/{sid}/override", {"score": 12.5, "reason": "Pin check: copied work"})
+_, gb = real("GET", "/api/instructor/gradebook")
+cell = next(x for x in gb["students"] if x["id"] == uid)["cells"]["1"]
+check("a lowered grade sticks over a higher attempt (gradebook)", cell["best"] == 12.5 and cell["adjusted"], cell)
+_, r = real("GET", "/api/instructor/assignments/1")
+p = next(x for x in r["students"] if x["user_id"] == uid)
+check("a lowered grade sticks over a higher attempt (analytics)", p["best"]["final_score"] == 12.5, p["best"])
+real("DELETE", f"/api/instructor/submissions/{sid}/override")
+
+# --- re-running needs everything the first run used
+c, r = st("POST", "/api/grade", {"repo_url": "https://github.com/docker/welcome-to-docker"})
+practice = r.get("submission_id") if isinstance(r, dict) else None
+if practice:
+    c, _ = real("POST", f"/api/instructor/submissions/{practice}/regrade")
+    check("practice runs (custom rubric not stored) cannot be re-run", c == 409, c)
+
 # --- students only see their own work
 c, mine = st("GET", "/api/student/submissions")
 own_jobs = {s["job_id"] for s in mine}
@@ -123,20 +150,20 @@ if other:
     c, _ = st("GET", f"/api/submissions/by-job/{other}")
     check("student cannot read another student's submission", c == 404, c)
 
-# --- signup and login hardening
+# --- signup and login hardening (demo mode)
 c, _ = anon("POST", "/api/auth/signup", {"name": "Fake Admin", "email": "instructor@autograder.local", "password": "password123"})
-check("cannot sign up with a reserved demo email", c in (409, 422), c)
+check("cannot sign up with a reserved demo email", c in (403, 409, 422), c)
 c, _ = anon("POST", "/api/auth/signup", {"name": "Fake", "email": "x@demo.autograder.local", "password": "password123"})
-check("cannot sign up under the demo domain", c == 422, c)
+check("cannot sign up under the demo domain", c in (403, 422), c)
 c, r = anon("POST", "/api/auth/signup", {"name": "New Student", "email": f"new{int(time.time())}@college.edu", "password": "password123"})
-check("signup creates a student, never an instructor", c == 201 and r["user"]["role"] == "student", f"{c} {r}")
-c, _ = anon("POST", "/api/auth/signup", {"name": "Role Inject", "email": f"r{int(time.time())}@college.edu", "password": "password123", "role": "instructor"})
+check("sign-up is closed on the public demo (real students' data stays off it)", c == 403, f"{c} {r}")
 codes = []
 brute = client()
-for i in range(12):
-    c, _ = brute("POST", "/api/auth/login", {"email": REAL[0], "password": f"guess{i}"})
+for i in range(12):  # a different forged X-Forwarded-For on every try must not reset the per-IP count
+    c, _ = brute("POST", "/api/auth/login", {"email": REAL[0], "password": f"guess{i}"},
+                 headers={"X-Forwarded-For": f"10.{i}.{i}.{i}"})
     codes.append(c)
-check("login brute force is throttled", codes[-1] == 429 and codes[0] == 401, codes)
+check("login brute force is throttled, even with forged X-Forwarded-For", codes[-1] == 429 and codes[0] == 401, codes)
 c, _ = brute("POST", "/api/auth/login", {"email": REAL[0], "password": REAL[1]})
 check("throttled account stays locked for the window even with the right password", c == 429, c)
 

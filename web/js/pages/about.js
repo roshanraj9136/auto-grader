@@ -121,8 +121,9 @@ export async function page(view) {
         <div class="table-wrap"><table class="bands"><thead><tr><th>Grade</th><th>A</th><th>A-</th><th>B</th><th>B-</th><th>C</th><th>C-</th><th>D</th><th>F</th></tr></thead>
           <tbody><tr><td>Score from</td><td>85</td><td>78</td><td>70</td><td>62</td><td>55</td><td>48</td><td>40</td><td>0</td></tr></tbody></table></div>
         <p>Default weights are code quality 25%, architecture 25%, testing 20%, security 15% and Docker &amp; DevOps 15%. A student may
-          submit as often as they like; their <b>best</b> attempt counts. Instructors can adjust a grade by hand; the original score and
-          the written reason are stored, shown to the student, and can be restored.</p>
+          submit as often as they like; their <b>best</b> attempt counts. Instructors can adjust a grade by hand: the adjusted score becomes
+          the assignment grade (even over later attempts), the original score and the written reason are stored and shown to the
+          student, and the original can be restored.</p>
       </section>
 
       <section id="latency">
@@ -200,8 +201,9 @@ export async function page(view) {
           <tr><td><b>Docker sandbox</b></td><td>No network, 512 MB memory, 1 CPU, 256 processes, all capabilities dropped, no privilege escalation; opt-in only.</td></tr>
           <tr><td><b>Passwords and sessions</b></td><td>scrypt password hashes; random 256-bit session tokens stored only as SHA-256; cookies are HttpOnly, SameSite=Lax and Secure over HTTPS.</td></tr>
           <tr><td><b>Who can do what</b></td><td>Every instructor endpoint checks the role on the server. Students can only read their own submissions and reports, and no student endpoint can change a score.</td></tr>
-          <tr><td><b>Brute force</b></td><td>Sign-in is throttled per IP address and per account; wrong class join codes are throttled per IP address; unknown emails take as long to reject as wrong passwords.</td></tr>
-          <tr><td><b>Public demo</b></td><td>The demo instructor is read-only on the server: it cannot change grades or assignments, and real students' emails are hidden from it. Demo logins cannot change their password or name.</td></tr>
+          <tr><td><b>Brute force</b></td><td>Sign-in is throttled per IP address and per account; wrong class join codes are throttled per IP address and in total; unknown emails take as long to reject as wrong passwords. The address comes from the edge proxy (Cloudflare on Render), never from a header the client can write.</td></tr>
+          <tr><td><b>Public demo</b></td><td>Sign-up is closed in demo mode, so real students never share a server with a published instructor login. The demo instructor is read-only on the server: it cannot change grades or assignments. Demo logins cannot change their password or name.</td></tr>
+          <tr><td><b>Grade integrity</b></td><td>An adjusted grade is pinned as the assignment grade in every view, even over later or higher attempts, until the instructor restores it.</td></tr>
           <tr><td><b>Browser protections</b></td><td>Strict Content-Security-Policy, cross-site request blocking on every state-changing call, HSTS, no framing by other sites; the frontend lab runs student code in a sandboxed iframe.</td></tr>
           <tr><td><b>Exports</b></td><td>The CSV gradebook neutralises spreadsheet formula injection.</td></tr>
         </tbody></table></div>

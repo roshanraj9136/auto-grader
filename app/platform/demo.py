@@ -10,8 +10,10 @@ from __future__ import annotations
 import logging
 import secrets
 
+from datetime import datetime, timedelta, timezone
+
 from .. import config
-from .db import get_db, now_iso
+from .db import get_db, iso_ago, now_iso
 from .security import DEMO_CLASS_DOMAIN, hash_password
 
 log = logging.getLogger("autograder.demo")
@@ -50,15 +52,21 @@ def prepare_demo_class() -> list[tuple[int, dict, str]]:
     by_prefix = {p: next((a for a in assignments if a["title"].startswith(p)), None) for p in ("Lab 1", "Lab 2")}
     plan: list[tuple[int, dict, str]] = []
     with db.tx() as t:
+        if db.kind == "postgres":  # replicas start together: only one plans and queues the demo gradings
+            t.run("SELECT pg_advisory_xact_lock(4242002)")
+        last = t.one("SELECT value FROM meta WHERE key = 'demo_class_queued'")
+        if last and last["value"] > (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(timespec="seconds"):
+            return []  # another replica queued them moments ago
+        t.run("INSERT INTO meta (key, value) VALUES ('demo_class_queued', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+              (now_iso(),))
+        live = {r["id"] for r in t.all("SELECT id FROM instances WHERE last_seen >= ?", (iso_ago(config.INSTANCE_DEAD_S),))}
+        live.add(config.INSTANCE_ID)
         for name, entry, picks, labs in CLASS:
             email = _email(name)
-            row = t.one("SELECT id FROM users WHERE email = ?", (email,))
-            if row:
-                uid = row["id"]
-            else:  # random password: these accounts are data, nobody signs in as them
-                uid = t.insert("INSERT INTO users (email, name, entry_no, password_hash, role, created_at) "
-                               "VALUES (?, ?, ?, ?, 'student', ?)",
-                               (email, name, entry, hash_password(secrets.token_urlsafe(24)), now_iso()))
+            # random password: these accounts are data, nobody signs in as them
+            t.run("INSERT INTO users (email, name, entry_no, password_hash, role, created_at) VALUES (?, ?, ?, ?, 'student', ?) "
+                  "ON CONFLICT (email) DO NOTHING", (email, name, entry, hash_password(secrets.token_urlsafe(24)), now_iso()))
+            uid = t.one("SELECT id FROM users WHERE email = ?", (email,))["id"]
             for item in labs:
                 lab, task = item.split(":")
                 t.run("INSERT INTO lab_progress (user_id, lab, task, completed_at) VALUES (?, ?, ?, ?) "
@@ -69,13 +77,14 @@ def prepare_demo_class() -> list[tuple[int, dict, str]]:
             plan += [(demo["id"], by_prefix[p], repo) for p, repo in DEMO_STUDENT_PLAN.items() if by_prefix.get(p)]
         pending = []
         for uid, a, repo in plan:
-            live = t.one("SELECT id FROM submissions WHERE user_id = ? AND assignment_id = ? AND repo_url = ? "
-                         "AND status IN ('done', 'queued', 'running') LIMIT 1", (uid, a["id"], repo))
-            if live:
+            rows = t.all("SELECT id, status, instance FROM submissions WHERE user_id = ? AND assignment_id = ? AND repo_url = ?",
+                         (uid, a["id"], repo))
+            # Still in progress on a replica that is alive, or already graded: leave it alone.
+            if any(r["status"] == "done" or (r["status"] in ("queued", "running") and r["instance"] in live) for r in rows):
                 continue
-            # Interrupted earlier (host restarted mid-grading): drop the failed row and grade again.
-            t.run("DELETE FROM submissions WHERE user_id = ? AND assignment_id = ? AND repo_url = ? AND status = 'failed'",
-                  (uid, a["id"], repo))
+            # Interrupted earlier (host restarted or slept mid-grading): drop those rows and grade again.
+            for r in rows:
+                t.run("DELETE FROM submissions WHERE id = ?", (r["id"],))
             pending.append((uid, a, repo))
     if pending:
         log.info("demo class: queueing %d real grading(s) of sample repositories", len(pending))

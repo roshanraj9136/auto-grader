@@ -186,7 +186,9 @@ export async function assignment(view, { id }) {
   const checks = (a.rubric_notes || "").split(/;|\n|\.\s/).map((x) => x.trim().replace(/\.$/, "")).filter((x) => x.length > 3)
     .map((c) => c.charAt(0).toUpperCase() + c.slice(1));
   const subs = a.submissions || [];
-  const best = subs.filter((s) => s.final_score != null).sort((x, y) => y.final_score - x.final_score)[0];
+  // An instructor-adjusted grade is the grade for this assignment, even if a later attempt scored higher.
+  const best = subs.find((s) => s.override && s.status === "done")
+    || subs.filter((s) => s.final_score != null).sort((x, y) => y.final_score - x.final_score)[0];
   const closed = a.due_at && new Date(a.due_at) < new Date();
   view.innerHTML = `
   ${pageHeader(`<a href="/student/assignments">Assignments</a> / ${esc(TRACKS[a.track] || a.track)}`, esc(a.title),

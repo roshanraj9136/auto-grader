@@ -33,6 +33,8 @@ services:
       # Set to "0" for a real class (this also deletes the demo accounts).
       - key: AUTOGRADER_DEMO_SEED
         value: "1"
+      - key: AUTOGRADER_CLIENT_IP_HEADER   # Render sits behind Cloudflare: the real client IP, not forgeable
+        value: "cf-connecting-ip"
       - key: AUTOGRADER_REQUIRE_LOGIN
         value: "1"
       - key: AUTOGRADER_COOKIE_SECURE      # served over HTTPS

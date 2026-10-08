@@ -23,7 +23,8 @@ export function openAdjust({ submissionId, score, studentName, override, onDone 
   dlg.innerHTML = `<form method="dialog" class="form" novalidate>
       <h2>Adjust grade</h2>
       <p class="hint">${esc(studentName || "Student")}, currently <b>${esc(fmt1(score))}</b> out of 100${override ? `, adjusted from ${esc(fmt1(override.original_score))}` : ""}.
-        The student sees the new score and your reason on their feedback page.</p>
+        The new score becomes the student's grade for this assignment, even if they submit again, until you restore the original.
+        They see it with your reason on their feedback page.</p>
       <label for="adj-score">New score (0 to 100)</label>
       <input id="adj-score" type="number" min="0" max="100" step="0.1" required value="${esc(score ?? "")}" />
       <label for="adj-reason">Reason</label>
@@ -224,6 +225,9 @@ export async function studentProfile(view, { id }) {
     for (const x of d.submissions) {
       if (x.status === "done") rowsById.set(String(x.id), { submissionId: x.id, score: x.final_score, studentName: u.name, override: x.override });
     }
+    for (const a of d.assignments) {  // the best attempt may be older than the submissions listed below
+      if (a.submission_id) rowsById.set(String(a.submission_id), { submissionId: a.submission_id, score: a.best, studentName: u.name, override: a.override });
+    }
     const labTotal = Object.values(d.labs).reduce((n, v) => n + v.length, 0);
     view.innerHTML = `
     ${pageHeader(`<a href="/instructor/students">Students</a>`, esc(u.name),
@@ -246,7 +250,7 @@ export async function studentProfile(view, { id }) {
       <div class="table-wrap"><table><thead><tr><th>Assignment</th><th class="num">Best</th><th class="num">Attempts</th><th class="hide-sm">Last attempt</th><th></th></tr></thead><tbody>
       ${d.assignments.map((a) => {
         const missing = !a.attempts && a.due_at && daysLeft(a.due_at) < 0;
-        const ovr = a.submission_id ? rowsById.get(String(a.submission_id))?.override : null;
+        const ovr = a.override;
         return `<tr><td><a href="/instructor/assignment/${a.id}"><b>${esc(a.title)}</b></a><span class="sub-l">${a.due_at ? `due ${esc(fmtDate(a.due_at))}` : "no deadline"}</span></td>
           <td class="num">${a.best != null ? `${gradeBadge(a.best, a.grade)}${adjustedMark(ovr)}` : missing ? '<span class="chip bad">Missing</span>' : "–"}</td>
           <td class="num">${a.attempts}</td>
@@ -262,7 +266,7 @@ export async function studentProfile(view, { id }) {
             <td>${esc(fmtDate(x.created_at, true))}</td>
             <td class="num">${gradeBadge(x.final_score, x.grade)}${adjustedMark(x.override)}</td>
             <td class="actions">${x.status === "done" ? `<a class="ghost sm" href="/jobs/${esc(x.job_id)}">Feedback</a>` : ""}
-              <button class="ghost sm" type="button" data-regrade="${x.id}" data-write title="Grade this submission again">Re-run</button></td></tr>`).join("")}
+              ${x.assignment_id ? `<button class="ghost sm" type="button" data-regrade="${x.id}" data-write title="Grade this submission again">Re-run</button>` : ""}</td></tr>`).join("")}
           </tbody></table></div>` : emptyState("No submissions yet", "Nothing submitted so far.", "", "upload")}</div>
       <div class="panel"><div class="panel-h"><h2>Labs</h2><span class="hint">${plural(labTotal, "task")} done</span></div>
         ${labTotal ? `<ul class="list">${Object.entries(d.labs).filter(([, v]) => v.length).map(([lab, tasks]) => `<li><span class="list-ico">${icon({ frontend: "code", database: "database", loadbalancer: "network", network: "globe", docker: "box" }[lab] || "flask")}</span>
