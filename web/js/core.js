@@ -21,6 +21,11 @@ export const TRACKS = {
 
 export const state = { user: null, demo: false, signupCode: false };
 
+// Public demo logins (AUTOGRADER_DEMO_SEED=1). The server refuses their write actions; the UI says so up front.
+const DEMO_LOGINS = new Set(["instructor@autograder.local", "student@autograder.local"]);
+export const isDemoUser = (u = state.user) => !!u && DEMO_LOGINS.has(String(u.email).toLowerCase());
+export const isReadOnly = (u = state.user) => isDemoUser(u) && u.role === "instructor";
+
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -217,13 +222,25 @@ export function lineChart(points, { height = 200, min = 0, max = 100 } = {}) {
   const summary = points.map((p) => `${p.label}: ${p.score}`).join(", ");
   const note = n === 1 ? `<text x="${W / 2}" y="${H - 6}" text-anchor="middle" class="axis">Submit again to see your trend</text>` : "";
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Score history: ${esc(summary)}">
-    <defs><linearGradient id="lg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--acc)" stop-opacity=".22"/><stop offset="1" stop-color="var(--acc)" stop-opacity="0"/></linearGradient></defs>
-    ${grid}${n > 1 ? `<path d="${area}" fill="url(#lg)"/><path d="${path}" class="line"/>` : ""}${dots}${note}</svg>`;
+    ${grid}${n > 1 ? `<path d="${area}" class="area"/><path d="${path}" class="line"/>` : ""}${dots}${note}</svg>`;
+}
+
+/** A learning-path line such as "Containers: multi-stage builds, non-root images" with its topic in bold. */
+export function learnLine(text) {
+  const s = String(text ?? "");
+  const i = s.indexOf(":");
+  if (i < 3 || i > 90) return esc(s);
+  return `<b>${esc(s.slice(0, i))}</b>${esc(s.slice(i))}`;
+}
+
+/** Days until an ISO date: negative once it has passed, null when there is no date. */
+export function daysLeft(iso) {
+  return iso ? (new Date(iso).getTime() - Date.now()) / 86400e3 : null;
 }
 
 export function radarChart(values, { size = 280 } = {}) {
   const keys = Object.keys(DIMENSIONS);
-  const c = size / 2, r = size / 2 - 48;
+  const c = size / 2, r = size / 2 - 62;
   const pt = (i, v) => {
     const a = -Math.PI / 2 + (i * 2 * Math.PI) / keys.length;
     return [c + Math.cos(a) * r * v, c + Math.sin(a) * r * v];
@@ -247,10 +264,12 @@ export function barChart(entries, { max, unit = "", height = 180, colorFn } = {}
   if (!entries.length) return "";
   const W = window.innerWidth < 600 ? 360 : 640, H = height, pb = 26, pt = 18;
   const top = max ?? Math.max(1, ...entries.map(([, v]) => v || 0));
-  const bw = (W - 20) / entries.length;
+  // Bars never grow wider than 72 units, so a chart with one or two bars stays readable; the group is centred.
+  const bw = Math.min((W - 20) / entries.length, 72);
+  const x0 = (W - bw * entries.length) / 2;
   const bars = entries.map(([label, v], i) => {
     const h = ((v || 0) / top) * (H - pb - pt);
-    const xx = 10 + i * bw + bw * 0.18;
+    const xx = x0 + i * bw + bw * 0.18;
     return `<g><rect x="${xx}" y="${H - pb - h}" width="${bw * 0.64}" height="${Math.max(h, 2)}" rx="6" class="barfill ${colorFn ? colorFn(label, v) : ""}"><title>${esc(label)}: ${esc(v)}${unit}</title></rect>
       <text x="${xx + bw * 0.32}" y="${H - pb - h - 6}" text-anchor="middle" class="axis val">${v ?? 0}${unit}</text>
       <text x="${xx + bw * 0.32}" y="${H - 7}" text-anchor="middle" class="axis">${esc(label)}</text></g>`;

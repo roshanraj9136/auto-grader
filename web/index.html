@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>AutoGrader+ · learn full-stack development</title>
-  <meta name="description" content="AutoGrader+: submit your GitHub project and get clear, friendly feedback in about a minute, then practise frontend, databases, networks and Docker in hands-on labs." />
-  <meta name="theme-color" content="#059669" />
+  <title>AutoGrader+: your repo, marked like a code review</title>
+  <meta name="description" content="AutoGrader+: submit your GitHub project and get a score, the exact files to fix and what to learn next in about a minute. Instructors see who needs help at a glance." />
+  <meta name="theme-color" content="#141c2e" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="preload" href="/fonts/mona-sans-latin.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/styles.css" />
   <script src="/theme.js"></script>
 </head>
@@ -18,7 +19,7 @@
     <aside class="sidebar" aria-label="Main navigation">
       <a href="/" class="brand" aria-label="AutoGrader+ home">
         <span class="logo" id="logo-side"></span>
-        <span class="brand-t"><span>AutoGrader<i>+</i></span><small>Learn full-stack development</small></span>
+        <span class="brand-t"><span>AutoGrader<i>+</i></span><small id="brand-sub">Full-stack course</small></span>
       </a>
       <nav id="sidebar-nav"></nav>
       <div class="side-foot" id="side-foot"></div>
@@ -28,8 +29,10 @@
       <header class="topbar">
         <button id="menu-btn" class="icon-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar-nav"></button>
         <a href="/" class="brand compact" aria-label="AutoGrader+ home"><span class="logo" id="logo-top"></span><span>AutoGrader<i>+</i></span></a>
+        <nav class="role-tabs" id="role-tabs" aria-label="Instructor sections"></nav>
         <div class="spacer"></div>
         <nav class="top-links" id="top-links" aria-label="Site"></nav>
+        <div class="top-user" id="top-user"></div>
         <button id="theme-btn" class="icon-btn" type="button" aria-label="Switch to dark mode" title="Light / dark mode"></button>
       </header>
       <main id="view" class="view" tabindex="-1"></main>

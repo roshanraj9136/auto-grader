@@ -1,14 +1,14 @@
 // Practice grading, the friendly live progress view (SSE) and the feedback page.
 import {
-  $, DEFAULT_WEIGHTS, DIM_HELP, DIM_ICON, DIMENSIONS, api, emptyState, esc, gradeClass, icon, pageHeader, scoreRing, toast,
+  $, DEFAULT_WEIGHTS, DIM_HELP, DIM_ICON, DIMENSIONS, api, emptyState, esc, gradeClass, icon, learnLine, pageHeader, state, toast,
 } from "../core.js";
 
 // Four student-facing steps; each groups some backend pipeline stages.
 const STEPS = [
-  ["Getting your code", "Downloading from GitHub", ["resolve", "clone", "cache_lookup"]],
-  ["Reading your project", "Finding files, languages and tools", ["index", "docker"]],
-  ["Expert review", "5 reviewers check your work", ["agent:code_quality", "agent:architecture", "agent:security", "agent:testing", "agent:devops"]],
-  ["Writing your feedback", "Scoring and next steps", ["judge", "report"]],
+  ["Getting your code", "Cloning it from GitHub", ["resolve", "clone", "cache_lookup"]],
+  ["Reading your project", "Languages, tests and Dockerfiles", ["index", "docker"]],
+  ["Reviewing", "Five reviewers, in parallel", ["agent:code_quality", "agent:architecture", "agent:security", "agent:testing", "agent:devops"]],
+  ["Writing your feedback", "The score and your next steps", ["judge", "report"]],
 ];
 const REVIEWERS = ["code_quality", "architecture", "security", "testing", "devops"];
 const TOTAL_UNITS = 2 + 2 + REVIEWERS.length + 2;
@@ -54,8 +54,10 @@ export function readRepoFields(prefix = "") {
 }
 
 export async function page(view) {
+  const teach = state.user?.role === "instructor";
   view.innerHTML = `
-  ${pageHeader("Practice", "Check any project", "Not tied to an assignment. Great for trying out a repo before you submit it.")}
+  ${teach ? pageHeader("", "Practice grading", "Run any public repository through the grader with your own rubric, for example to try a new assignment before you publish it.")
+    : pageHeader("", "Practice", "Check any repository without submitting it for an assignment. Good for a test run before the real thing.")}
   <section class="panel">
     <form id="grade-form" class="form" novalidate>
       ${repoFields()}
@@ -67,7 +69,7 @@ export async function page(view) {
           <textarea id="notes" rows="3" placeholder="e.g. A REST API with PostgreSQL and a React frontend, deployed with docker-compose."></textarea></div>
       </details>
       <p id="err" class="error" role="alert"></p>
-      <div class="row-btns"><button class="btn lg" id="go" type="submit">${icon("sparkles")} Get feedback</button>
+      <div class="row-btns"><button class="btn lg" id="go" type="submit">Get feedback</button>
         <button class="ghost" type="button" id="sample">Try a sample project</button></div>
     </form>
   </section>
@@ -96,12 +98,14 @@ export async function page(view) {
 }
 
 export async function job(view, { id }) {
-  view.innerHTML = `${pageHeader(`<a href="/student/submissions">My submissions</a>`, "Your feedback")}<div id="live-host"></div>`;
+  const back = state.user?.role === "instructor" ? `<a href="/instructor/dashboard">Overview</a>` : `<a href="/student/submissions">My submissions</a>`;
+  view.innerHTML = `${pageHeader(back, "Feedback")}<div id="live-host"></div>`;
   let live = true;
   try { await api(`/api/jobs/${encodeURIComponent(id)}`); } catch (e) { if (e.status === 404) live = false; else throw e; }
   if (live) return liveJob($("#live-host"), id, {});
   const sub = await api(`/api/submissions/by-job/${encodeURIComponent(id)}`);
-  if (sub.status === "queued" || sub.status === "running") return liveJob($("#live-host"), id, { pollOnly: true });
+  // Running on another server, or this one restarted: the stream is replayed from the database.
+  if (sub.status === "queued" || sub.status === "running") return liveJob($("#live-host"), id, {});
   if (sub.status === "failed") {
     $("#live-host").innerHTML = failedCard(sub.error);
     return null;
@@ -220,7 +224,7 @@ export function liveJob(host, jobId, { onFinish, pollOnly = false } = {}) {
 }
 
 // ------------------------------------------------------------------------------------ feedback page
-const VERDICT = [[85, "Excellent work!"], [70, "Great job!"], [55, "Good progress"], [40, "Getting there"], [0, "Needs more work"]];
+const VERDICT = [[85, "Excellent work"], [70, "Strong submission"], [55, "Good progress"], [40, "Getting there"], [0, "Needs more work"]];
 const verdictFor = (s) => VERDICT.find(([c]) => s >= c)[1];
 const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
@@ -231,6 +235,23 @@ function parsePriority(p) {
 
 // "Container runs as root [vote/Dockerfile]" -> base title + where. Repeats of the same issue are merged.
 const splitWhere = (t) => { const m = String(t).match(/^(.*?)\s*\[([^\]]+)\]\s*$/); return m ? [m[1], m[2]] : [String(t), null]; };
+
+/** Unique, readable titles of a report's top priorities (used on the student dashboard). */
+export function priorityTitles(list, n = 3) {
+  return groupPriorities((list || []).map(parsePriority)).slice(0, n).map((p) => p.title);
+}
+
+// The one orchestrated moment: the score counts up when feedback appears.
+function countUp(el, to) {
+  if (!el || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const t0 = performance.now(), dur = 700, target = Math.round(to);
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / dur);
+    el.textContent = String(Math.round(target * (1 - Math.pow(1 - k, 3))));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
 
 function groupPriorities(list) {
   const out = new Map();
@@ -268,13 +289,17 @@ export async function renderFeedback(host, jobId, sub = null) {
     r = await api(`/api/jobs/${encodeURIComponent(jobId)}/report.json`);
   } catch {
     host.innerHTML = sub?.final_score != null
-      ? `<section class="panel"><div class="result-hero">${scoreRing(sub.final_score, sub.grade, 120)}<div class="grow"><h2>${esc(verdictFor(sub.final_score))}</h2>
-          <p>Your detailed feedback isn't available right now. Try again in a moment.</p></div></div></section>`
+      ? `<section class="panel verdict"><div class="score-mark ${gradeClass(sub.final_score)}"><div class="score-line"><b>${esc(Math.round(sub.final_score))}</b>
+          <span class="of">/100</span></div><span class="letter">Grade<strong>${esc(sub.grade || "")}</strong></span></div>
+          <div class="grow"><p class="verdict-word">${esc(verdictFor(sub.final_score))}</p>
+          <p>The detailed feedback can't be loaded right now. Reload the page in a moment to try again.</p></div></section>`
       : emptyState("Feedback not available", "Try again in a moment.", "", "alert");
     return;
   }
   const v = r.verdict;
-  const score = v.final_score;
+  const adj = sub?.override && sub.final_score != null ? sub.override : null; // instructor-adjusted grade wins
+  const score = adj ? sub.final_score : v.final_score;
+  const gradeLetter = adj ? sub.grade : v.grade;
   const dims = v.dimensions;
   const agents = Object.fromEntries((r.agents || []).map((a) => [a.dimension, a]));
   const priorities = groupPriorities((v.top_priorities || []).map(parsePriority)).slice(0, 5);
@@ -284,11 +309,13 @@ export async function renderFeedback(host, jobId, sub = null) {
   const repoName = r.repo_url.replace("https://github.com/", "");
   const strongest = [...dims].sort((a, b) => b.final_score - a.final_score)[0];
 
-  const tiles = dims.map((d) => {
+  const marks = [...dims].sort((a, b) => (b.weight || 0) - (a.weight || 0)).map((d) => {
     const cls = gradeClass(d.final_score * 10);
-    return `<div class="dim-tile ${cls}"><span class="dt-ico">${icon(DIM_ICON[d.dimension] || "star")}</span><b>${esc(DIMENSIONS[d.dimension] || d.dimension)}</b>
-      <span class="dt-score">${esc(d.final_score.toFixed(1))}<small> / 10</small></span>
-      <div class="bar"><span style="width:${d.final_score * 10}%"></span></div><span class="dt-help">${esc(DIM_HELP[d.dimension] || "")}</span></div>`;
+    return `<tr class="${cls}"><td><div class="m-area">${icon(DIM_ICON[d.dimension] || "star")}<div><b>${esc(DIMENSIONS[d.dimension] || d.dimension)}</b>
+        <span>${esc(DIM_HELP[d.dimension] || "")}</span></div></div></td>
+      <td class="m-w">${d.weight ? `counts ${Math.round(d.weight * 100)}%` : "not counted"}</td>
+      <td class="m-bar"><div class="bar"><span style="width:${d.final_score * 10}%"></span></div></td>
+      <td class="num m-score">${esc(d.final_score.toFixed(1))}<small> /10</small></td></tr>`;
   }).join("");
 
   const detail = dims.map((d) => {
@@ -300,7 +327,7 @@ export async function renderFeedback(host, jobId, sub = null) {
     return `<details class="fb ${cls}"${d === [...dims].sort((x, y) => x.final_score - y.final_score)[0] ? " open" : ""}>
       <summary><span class="fb-ico">${icon(DIM_ICON[d.dimension] || "star")}</span>
         <span>${esc(DIMENSIONS[d.dimension] || d.dimension)}</span><span class="grade ${cls}">${esc(d.final_score.toFixed(1))}</span>
-        <span class="muted" style="font-weight:500;font-size:.85rem">${findings.length ? `${findings.length} thing${findings.length > 1 ? "s" : ""} to improve` : "Nothing to fix"}</span>
+        <span class="muted" style="font-weight:500;font-size:.9em">${findings.length ? `${findings.length} thing${findings.length > 1 ? "s" : ""} to improve` : "Nothing to fix"}</span>
         <span class="chev">${icon("chevronDown")}</span></summary>
       <div class="fb-body">
         ${showSummary ? `<p>${esc(a.summary)}</p>` : ""}
@@ -312,33 +339,39 @@ export async function renderFeedback(host, jobId, sub = null) {
       </div></details>`;
   }).join("");
 
+  const mine = state.user?.role !== "instructor";
   host.innerHTML = `
-  <section class="panel">
-    <div class="result-hero">${scoreRing(score, v.grade, 132)}
-      <div class="grow">
-        <span class="verdict-tag ${gradeClass(score)}">${icon("sparkles")} ${esc(verdictFor(score))}</span>
-        <h2>${esc(score)}/100 for <a href="${esc(r.repo_url)}" target="_blank" rel="noopener">${esc(repoName)}</a></h2>
-        <p>${esc(v.summary || `Your strongest area is ${DIMENSIONS[strongest?.dimension] || ""}.`)}</p>
-        <div class="row-btns">
-          <a class="ghost sm" href="/api/jobs/${esc(jobId)}/report.html" target="_blank" rel="noopener">${icon("file")} Printable report</a>
-          <a class="ghost sm" href="/api/jobs/${esc(jobId)}/report.md" download>${icon("download")} Download</a>
-          ${sub?.assignment_id ? `<a class="ghost sm" href="/student/assignment/${esc(sub.assignment_id)}">${icon("refresh")} Improve &amp; resubmit</a>` : ""}
-        </div>
+  <section class="panel verdict">
+    <div class="score-mark ${gradeClass(score)}">
+      <div class="score-line"><b id="score-n">${esc(Math.round(score))}</b><span class="of">/100</span></div>
+      <span class="letter">Grade<strong>${esc(gradeLetter)}</strong></span>
+    </div>
+    <div class="grow">
+      <p class="verdict-word">${esc(verdictFor(score))}</p>
+      ${adj ? `<div class="banner adj-note">${icon("edit")}<span><b>Adjusted by ${esc(adj.by_name || "your instructor")}</b> from ${esc(adj.original_score)}
+        to ${esc(score)}: ${esc(adj.reason)}</span></div>` : ""}
+      <h2><a href="${esc(r.repo_url)}" target="_blank" rel="noopener">${esc(repoName)}</a></h2>
+      <p>${esc(v.summary || `The strongest area is ${DIMENSIONS[strongest?.dimension] || ""}.`)}</p>
+      <div class="row-btns">
+        ${mine && sub?.assignment_id ? `<a class="btn sm" href="/student/assignment/${esc(sub.assignment_id)}">Improve and resubmit</a>` : ""}
+        <a class="ghost sm" href="/api/jobs/${esc(jobId)}/report.html" target="_blank" rel="noopener">${icon("file")} Printable report</a>
+        <a class="ghost sm" href="/api/jobs/${esc(jobId)}/report.md" download>${icon("download")} Download as Markdown</a>
       </div>
     </div>
   </section>
-  <div class="dim-tiles">${tiles}</div>
+  <section class="panel"><div class="panel-h"><h2>Marks by area</h2><span class="hint">out of 10, weighted by the rubric</span></div>
+    <div class="table-wrap"><table class="marks"><tbody>${marks}</tbody></table></div></section>
   <section class="grid-1-1">
-    <div class="panel"><div class="panel-h"><h2>${icon("target")} Fix these first</h2></div>
-      ${priorities.length ? `<ol class="prio-list">${priorities.map((p, i) => `<li><span class="pn">${i + 1}</span><div>
+    <div class="panel"><div class="panel-h"><h2>Fix these first</h2><span class="hint">most important first</span></div>
+      ${priorities.length ? `<ol class="prio-list">${priorities.map((p) => `<li><div>
         <b>${p.sev ? `<span class="sev-tag sev-${esc(p.sev)}">${esc(p.sev)}</span>` : ""}${esc(p.title)}</b>${p.fix ? `<p>${esc(p.fix)}</p>` : ""}
         ${p.where?.length ? `<p class="muted">${p.where.length > 1 ? `In ${p.where.length} places: ` : "In "}${p.where.map((x) => `<code>${esc(x)}</code>`).join(" ")}</p>` : ""}</div></li>`).join("")}</ol>`
-        : emptyState("Nothing urgent", "No big issues found. Nice!", "", "checkCircle")}</div>
-    <div class="panel"><div class="panel-h"><h2>${icon("bulb")} What to learn next</h2><a href="/labs">Open labs ${icon("arrowRight")}</a></div>
-      ${learn.length ? `<ul class="learn-list">${learn.map((x) => `<li>${icon("book")}<p>${esc(x)}</p></li>`).join("")}</ul>`
-        : emptyState("You're on track", "Keep building!", "", "trophy")}</div>
+        : emptyState("Nothing urgent", "No serious issues were found in this submission.", "", "checkCircle")}</div>
+    <div class="panel"><div class="panel-h"><h2>What to learn next</h2><a href="/labs">Open the labs</a></div>
+      ${learn.length ? `<ul class="learn-list">${learn.map((x) => `<li>${icon("book")}<p>${learnLine(x)}</p></li>`).join("")}</ul>`
+        : emptyState("Nothing to add", "The reviewers had no extra topics to suggest.", "", "book")}</div>
   </section>
-  <section class="panel"><div class="panel-h"><h2>${icon("list")} Detailed feedback</h2><span class="hint">Click an area to expand</span></div>${detail}</section>
+  <section class="panel"><div class="panel-h"><h2>Detailed feedback</h2><span class="hint">Open an area to see each finding and its fix</span></div>${detail}</section>
   <section class="panel flat"><div class="snapshot">
     <span>${icon("code")} <b>${esc(s.code_files ?? 0)}</b> code files</span>
     <span>${icon("layers")} <b>${esc((s.source_lines ?? 0).toLocaleString())}</b> lines</span>
@@ -346,4 +379,5 @@ export async function renderFeedback(host, jobId, sub = null) {
     ${langs.length ? `<span>${icon("globe")} ${esc(langs.join(", "))}</span>` : ""}
     <span>${icon("box")} ${r.docker?.dockerfile_source && r.docker.dockerfile_source !== "none" ? "Dockerfile checked" : "No Dockerfile found"}</span>
     <span class="muted">Commit ${esc((r.commit_sha || "").slice(0, 7))}</span></div></section>`;
+  countUp(host.querySelector("#score-n"), score);
 }

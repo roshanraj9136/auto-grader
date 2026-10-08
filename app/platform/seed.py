@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from .. import config
 from .db import Tx, now_iso
-from .security import hash_password
+from .security import DEMO_CLASS_DOMAIN, hash_password
 
 log = logging.getLogger("autograder.seed")
 
@@ -78,7 +78,8 @@ def seed(t: Tx) -> None:
                     "student@autograder.local / student123. Disable before exposing this server to untrusted users.")
     else:
         # Turning the flag off must also revoke the well-known demo logins created earlier.
-        removed = t.run(f"DELETE FROM users WHERE email IN ({', '.join('?' for _ in demo_emails)})", demo_emails)
+        removed = t.run(f"DELETE FROM users WHERE email IN ({', '.join('?' for _ in demo_emails)}) OR email LIKE ?",
+                        [*demo_emails, f"%@{DEMO_CLASS_DOMAIN}"])
         if removed:
             log.warning("Removed %d demo account(s) because AUTOGRADER_DEMO_SEED=0", removed)
     seeded = t.scalar("SELECT value FROM meta WHERE key = 'sample_assignments'")

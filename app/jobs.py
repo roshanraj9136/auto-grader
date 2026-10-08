@@ -35,9 +35,13 @@ def request_fingerprint(req: GradeRequest) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+EventSink = Callable[[list[tuple[str, dict]]], None]
+
+
 class Job:
-    def __init__(self, req: GradeRequest) -> None:
+    def __init__(self, req: GradeRequest, on_event: Callable[[str, dict], None] | None = None) -> None:
         self.id = uuid.uuid4().hex
+        self._on_event = on_event  # mirrors every event to a durable log (see JobManager)
         self.request = req
         self.fingerprint = request_fingerprint(req)
         self.status: JobStatus = "queued"
@@ -54,6 +58,8 @@ class Job:
         self.events.append(evt)
         for q in self._subscribers:
             q.put_nowait(evt)
+        if self._on_event:
+            self._on_event(self.id, evt)
 
     async def stream(self, heartbeat_s: float = 15.0) -> AsyncIterator[dict | None]:
         """Replay history then follow live events; yields None as a heartbeat tick."""
@@ -103,7 +109,12 @@ class JobManager:
       existing job instead of doing the work twice.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, event_sink: EventSink | None = None) -> None:
+        """event_sink: optional blocking callback that stores batches of (job_id, event) durably, in order.
+        With it, any replica can stream any job's progress from the database (no sticky routing needed)."""
+        self._event_sink = event_sink
+        self._event_q: asyncio.Queue | None = None
+        self._event_writer: asyncio.Task | None = None
         self.jobs: OrderedDict[str, Job] = OrderedDict()
         self._inflight: dict[str, str] = {}
         self._sem = asyncio.Semaphore(config.MAX_CONCURRENT_JOBS)
@@ -136,7 +147,7 @@ class JobManager:
             METRICS.incr("jobs_deduplicated")
             return self.jobs[existing_id], True
 
-        job = Job(req)
+        job = Job(req, on_event=self._enqueue_event if self._event_sink else None)
         self.jobs[job.id] = job
         self._inflight[fp] = job.id
         while len(self.jobs) > config.MAX_STORED_JOBS:
@@ -189,10 +200,42 @@ class JobManager:
             if self._inflight.get(job.fingerprint) == job.id:
                 self._inflight.pop(job.fingerprint, None)
 
+    # ---- durable event log: one writer task keeps events in order and batches them per transaction
+    def _enqueue_event(self, job_id: str, evt: dict) -> None:
+        if self._event_q is None:
+            self._event_q = asyncio.Queue()
+        self._event_q.put_nowait((job_id, evt))
+        if self._event_writer is None or self._event_writer.done():
+            self._event_writer = asyncio.create_task(self._write_events(), name="job-event-writer")
+
+    def _drain(self, limit: int = 500) -> list[tuple[str, dict]]:
+        batch = []
+        while self._event_q is not None and not self._event_q.empty() and len(batch) < limit:
+            batch.append(self._event_q.get_nowait())
+        return batch
+
+    async def _write_events(self) -> None:
+        assert self._event_q is not None and self._event_sink is not None
+        while True:
+            batch = [await self._event_q.get()] + self._drain()
+            try:
+                await asyncio.to_thread(self._event_sink, batch)
+            except Exception:  # noqa: BLE001 - the in-memory stream still works; only cross-replica replay loses these
+                log.exception("could not persist %d job event(s)", len(batch))
+
     async def shutdown(self) -> None:
         for t in list(self._tasks):
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+        if self._event_writer is not None:
+            self._event_writer.cancel()
+            await asyncio.gather(self._event_writer, return_exceptions=True)
+            rest = self._drain(limit=100_000)
+            if rest and self._event_sink:
+                try:
+                    await asyncio.to_thread(self._event_sink, rest)
+                except Exception:  # noqa: BLE001
+                    log.exception("could not persist %d job event(s) on shutdown", len(rest))
 
     def stats(self) -> dict:
         by_status: dict[str, int] = {}

@@ -100,6 +100,31 @@ SCHEMA = [
         report_html TEXT NOT NULL,
         created_at TEXT NOT NULL
     )""",
+    # Instructor grade adjustments. The submission row carries the adjusted score (so every dashboard,
+    # gradebook and leaderboard query stays unchanged); this table keeps the original and the reason.
+    """CREATE TABLE IF NOT EXISTS grade_overrides (
+        submission_id {fk} PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
+        original_score {real},
+        original_grade TEXT,
+        score {real} NOT NULL,
+        grade TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        by_user {fk} REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL
+    )""",
+    # Durable copy of every job's progress events, so any replica can stream any job (no sticky routing).
+    # Pruned after a few days by the maintenance loop; the finished report lives in report_artifacts.
+    """CREATE TABLE IF NOT EXISTS job_events (
+        job_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        event TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (job_id, seq)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_job_events_created ON job_events(created_at)",
+    # Indexes for class-scale queries: per-assignment analytics and per-student history.
+    "CREATE INDEX IF NOT EXISTS ix_submissions_assignment_user ON submissions(assignment_id, user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_lab_progress_user ON lab_progress(user_id)",
 ]
 
 

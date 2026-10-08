@@ -129,7 +129,7 @@ def render_html(r: GradeReport) -> str:
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Feedback · {e(repo)} · AutoGrader+</title>
 <style>
-:root{{--fg:#0f1b2d;--muted:#6b7686;--bg:#f6f8fa;--card:#fff;--line:#e4e8ec;--brand:#059669}}
+:root{{--fg:#141c2e;--muted:#6b7686;--bg:#f1f3f6;--card:#fff;--line:#e1e5eb;--brand:#2140d9}}
 *{{box-sizing:border-box}} body{{font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--fg);background:var(--bg);margin:0;padding:28px 18px}}
 main{{max-width:960px;margin:auto}} h1{{margin:0 0 4px;font-size:1.5rem;letter-spacing:-.02em}} h2{{margin:28px 0 12px;font-size:1.15rem}}
 h3{{margin:0 0 8px;font-size:1.05rem;display:flex;gap:10px;align-items:center}} h4{{margin:14px 0 6px;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}}
@@ -146,7 +146,7 @@ a{{color:var(--brand)}} .muted{{color:var(--muted);font-size:.86rem}} p{{margin:
 .pill{{background:#f3f6f8;border-radius:999px;padding:2px 10px;font-size:.85rem;font-weight:700}}
 .sev{{color:#fff;border-radius:5px;padding:1px 7px;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;margin-right:8px;vertical-align:1px}}
 .finding{{padding:10px 0;border-top:1px solid var(--line)}} .finding:first-of-type{{border-top:0}}
-.fix{{background:#e7f8f1;border-radius:10px;padding:8px 12px;margin-top:6px}}
+.fix{{background:#f5f7f9;border-left:3px solid #ffe14a;border-radius:0 8px 8px 0;padding:8px 12px;margin-top:6px}}
 ol,ul{{padding-left:20px;margin:6px 0}} li{{margin:4px 0}} code{{font-size:.85em;background:#f3f6f8;padding:1px 5px;border-radius:5px}}
 pre{{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:10px;overflow:auto;max-height:300px;font-size:.8rem}}
 @media print{{body{{background:#fff;padding:0}} .card{{box-shadow:none;break-inside:avoid}}}}

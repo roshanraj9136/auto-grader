@@ -156,7 +156,7 @@ These figures use the real clone, index, lint, evidence and judge logic. LLM lat
 v2 runs **N stateless API replicas behind Nginx** (docker compose, 3 by default, `--scale api=N`):
 
 - **Shared state lives in PostgreSQL**: users, sessions, assignments, submissions (scores, dimension scores, learning path), lab progress and replica heartbeats. Reports and the result cache sit on a shared volume, so any replica can serve any page or report.
-- **Live state stays in memory.** A grading job's events and SSE stream live in the replica that accepted it. Nginx therefore routes with `hash $lb_key` on the session cookie (sticky). If a stream is ever unavailable (replica restarted, sticky key changed), the UI falls back to polling the job's database row, so it never hangs.
+- **Live state is also durable.** A grading job runs in the replica that accepted it and fans its events out in memory. Every event is also appended, in order, to the `job_events` table by one writer task per replica (batched, one transaction per batch). A replica that does not hold the job streams it from that table instead, so **any replica can serve any job's live progress** and sticky routing is no longer required (Nginx still uses it, which keeps streams on the fast in-memory path). If the replica running a job dies, the stream ends with the saved outcome once peers mark the submission failed. Events are pruned after three days; the finished report lives in `report_artifacts`.
 - **Job listeners.** `JobManager` notifies a listener on every running/done/failed transition *before* publishing the terminal SSE event. That listener mirrors the state into the `submissions` table, so a dashboard that refreshes on `job_done` already sees the grade.
 - **Failure handling.**
   - Every replica writes a heartbeat to `instances` every 20 s.
@@ -165,12 +165,7 @@ v2 runs **N stateless API replicas behind Nginx** (docker compose, 3 by default,
 - **Per-replica isolation on the shared volume.** In-flight clones go to `jobs/<instance-id>/`. Artifacts use unique temp files plus atomic rename. Finished reports are also copied into the `report_artifacts` table and served from there when the file is missing, so they survive hosts with an ephemeral disk (e.g. Render's free plan) and replicas without a shared volume.
 - **Database pool.** At most 10 connections per replica. Idle connections are pinged before reuse, and DDL plus seeding is serialised with a Postgres advisory lock so replicas can start together.
 
-Next steps at course scale:
-
-1. Move job events to **Redis** streams and run pipelines in **worker processes** fed by a queue. Live streams then no longer need sticky routing.
-2. Store reports in object storage (S3/MinIO).
-3. Run Docker builds on dedicated BuildKit workers or Kubernetes Jobs with gVisor/Kata isolation.
-4. Grade at the agent level across workers, retrying a single dimension without re-running the whole job.
+Next steps at course scale are in §13.
 
 ## 10. Learning platform layer
 
@@ -187,3 +182,47 @@ Next steps at course scale:
 Only **server-verified** lab tasks earn XP, so the leaderboard cannot be inflated with forged browser calls. Self-checked tasks still count as progress. The labs are deliberately *not* simulations: the load-balancer lab sends real requests through the platform's own Nginx to its replicas, and the network lab breaks a request down with the Resource Timing API plus the backend's `Server-Timing` header.
 
 This matches the proposed next version of the course Autograder: a platform that **teaches full-stack development**, with containerised backends reached through web and mobile (PWA) clients, and AutoGrader's report (with its *learning path* section) as the feedback loop.
+
+## 11. Instructor workspace
+
+`app/platform/instructor.py` serves the instructor's deep views; every route requires the instructor role.
+
+| Route | What it returns |
+|---|---|
+| `GET /api/instructor/gradebook` | Students × assignments: best graded attempt per cell, attempts, late flag (best attempt after the deadline), adjusted flag; per-column mean, count and maximum |
+| `GET /api/instructor/assignments/{id}` | Mean, median, population standard deviation, range, students below 50, late attempts, a 10-band histogram, letter-grade counts, per-area averages over best attempts, attempts per day, students who have not submitted, possible copying, and each student's best and latest attempt |
+| `GET /api/instructor/students/{id}` | One student's numbers, skill profile (last 10 graded), score timeline, per-assignment best and attempts, every submission, lab progress |
+| `POST / DELETE /api/instructor/submissions/{id}/override` | Set a graded submission's score with a mandatory reason, or restore the original |
+| `POST /api/instructor/submissions/{id}/regrade` | Grade a submission again from scratch (same repository and ref, current rubric) as a new attempt |
+| `POST /api/instructor/assignments/{id}/regrade` | Re-run every student's latest submission with the current rubric; unchanged code and rubric hit the cache |
+
+- **Possible copying** has two signals: the same repository URL used by two or more students for one assignment, and the same commit SHA appearing in *different* repositories (an unchanged fork). Both are hints for a human to review, not verdicts.
+- **Grade adjustments** write the new score into the submission row and *pin* the assignment grade: wherever a best attempt is chosen, an adjusted submission wins over every other attempt, including later ones. The original score and grade, the reason, the instructor and the time are kept in `grade_overrides`; `on_job_event` skips adjusted rows so a replayed job state cannot overwrite an adjustment; students see the reason on their feedback page.
+- **The overview** computes its "needs attention" list in the browser from the overview and student endpoints: shared repositories, failed gradings, students averaging below 50, students with no submissions, deadlines within 7 days with under 60% completion, and the weakest area when it averages below 6/10.
+
+## 12. Platform security
+
+| Concern | Control |
+|---|---|
+| Role checks | Every instructor route depends on `require_instructor`; writes (assignments, adjustments, re-grades) on `require_instructor_write`, which also rejects public demo accounts. Signup always creates a student. |
+| Data isolation | Students read only their own submissions; reports and live streams (including the database-backed stream) go through `require_job_access`: owner, instructor or API token. |
+| Public demo | With `AUTOGRADER_DEMO_SEED=1`, sign-up is closed (a published instructor login must never see real students), the demo instructor is read-only on the server, emails of any non-demo student are replaced by "hidden in the demo" in every instructor response and the CSV, and demo logins cannot change their name or password. Addresses under `autograder.local` are reserved. |
+| Brute force | Failed sign-ins are throttled per client IP (10 per 15 min) and per account (100 per 15 min, so a stranger cannot lock the instructor out with a few guesses); wrong join codes per IP (8 per hour) and in total (200 per hour); the join code is compared in constant time. Counters are per replica and in memory. |
+| Client address | Throttles key on an address the client cannot forge: the edge proxy's header (`AUTOGRADER_CLIENT_IP_HEADER`: `cf-connecting-ip` on Render, which sits behind Cloudflare; `x-real-ip` behind the bundled Nginx), otherwise the right-most `X-Forwarded-For` hop. Never the left-most hop, which the client writes. |
+| Grade integrity | An adjusted grade is pinned: it replaces the student's best attempt for that assignment in every view (dashboard, gradebook, analytics, leaderboard, CSV), including attempts submitted later, until the instructor restores it. Re-running is refused when the original inputs are not stored (practice runs with a custom rubric, uploaded Dockerfiles). |
+| Browser | HttpOnly + SameSite=Lax + Secure cookies, Fetch-Metadata / Origin check on state-changing API calls, strict CSP, HSTS over HTTPS, `X-Frame-Options`, `Permissions-Policy`, `nosniff`. All user data is HTML-escaped before rendering. |
+| Verification | `scripts/security_check.py` runs 51 checks against a demo-mode server as a visitor, a student, the demo instructor and the real instructor. |
+
+## 13. Scaling roadmap
+
+What exists today scales horizontally for the web tier: replicas are stateless, PostgreSQL holds all shared state, and the durable event log lets any replica stream any job. Grading capacity grows with the number of replicas (`MAX_CONCURRENT_JOBS` each). The steps below follow how large course autograders are built, ordered by value:
+
+1. **A durable work queue in PostgreSQL.** Insert a `grading_jobs` row per request and let workers claim rows with `UPDATE … WHERE id = (SELECT id … FOR UPDATE SKIP LOCKED LIMIT 1)`. `SKIP LOCKED` lets many workers drain one table without blocking each other, needs no new infrastructure, and makes jobs survive restarts (a free host going to sleep would resume, not fail). `LISTEN/NOTIFY` can wake workers, with polling as the fallback. Autolab's grader (Tango) uses the same split between a job queue and a job manager that assigns jobs to free workers; the University at Buffalo runs it for 2,000+ daily submissions across six grading servers.
+2. **Separate web and worker roles.** The same image started as `web` (HTTP + streams) or `worker` (claims and runs jobs), scaled independently: many small web replicas, fewer large workers with Docker.
+3. **Isolated build workers.** Run student Dockerfile builds on dedicated hosts (BuildKit, or Kubernetes Jobs with gVisor/Kata), one fresh environment per submission, as Autolab and Gradescope do.
+4. **Object storage for reports** (S3 or MinIO) once the report table grows large; keep only metadata in PostgreSQL.
+5. **Per-area retries.** Re-run one reviewer that failed instead of the whole job.
+6. **Courses.** Add a `courses` table and scope assignments, enrolments and analytics to a course, so one deployment serves many classes.
+7. **Shared rate limits** in Redis when there are many replicas, so throttles are global rather than per replica.
+
+The PostgreSQL queue is sound up to a few thousand jobs per second, far beyond a course's needs; beyond that the queue would move to a dedicated broker.
