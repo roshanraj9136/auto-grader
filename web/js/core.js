@@ -217,13 +217,25 @@ export function lineChart(points, { height = 200, min = 0, max = 100 } = {}) {
   const summary = points.map((p) => `${p.label}: ${p.score}`).join(", ");
   const note = n === 1 ? `<text x="${W / 2}" y="${H - 6}" text-anchor="middle" class="axis">Submit again to see your trend</text>` : "";
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Score history: ${esc(summary)}">
-    <defs><linearGradient id="lg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--acc)" stop-opacity=".22"/><stop offset="1" stop-color="var(--acc)" stop-opacity="0"/></linearGradient></defs>
-    ${grid}${n > 1 ? `<path d="${area}" fill="url(#lg)"/><path d="${path}" class="line"/>` : ""}${dots}${note}</svg>`;
+    ${grid}${n > 1 ? `<path d="${area}" class="area"/><path d="${path}" class="line"/>` : ""}${dots}${note}</svg>`;
+}
+
+/** A learning-path line such as "Containers: multi-stage builds, non-root images" with its topic in bold. */
+export function learnLine(text) {
+  const s = String(text ?? "");
+  const i = s.indexOf(":");
+  if (i < 3 || i > 90) return esc(s);
+  return `<b>${esc(s.slice(0, i))}</b>${esc(s.slice(i))}`;
+}
+
+/** Days until an ISO date: negative once it has passed, null when there is no date. */
+export function daysLeft(iso) {
+  return iso ? (new Date(iso).getTime() - Date.now()) / 86400e3 : null;
 }
 
 export function radarChart(values, { size = 280 } = {}) {
   const keys = Object.keys(DIMENSIONS);
-  const c = size / 2, r = size / 2 - 48;
+  const c = size / 2, r = size / 2 - 62;
   const pt = (i, v) => {
     const a = -Math.PI / 2 + (i * 2 * Math.PI) / keys.length;
     return [c + Math.cos(a) * r * v, c + Math.sin(a) * r * v];

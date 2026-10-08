@@ -30,18 +30,21 @@ const ROUTES = [
 
 const NAV = {
   student: [
-    ["", [["/student/dashboard", "Dashboard", "home"], ["/student/assignments", "Assignments", "book"],
+    ["", [["/student/dashboard", "Home", "home"], ["/student/assignments", "Assignments", "book"],
       ["/labs", "Labs", "flask"], ["/grader", "Practice", "zap"]]],
-    ["Progress", [["/student/submissions", "My submissions", "list"], ["/student/leaderboard", "Leaderboard", "trophy"],
+    ["Your progress", [["/student/submissions", "My submissions", "list"], ["/student/leaderboard", "Leaderboard", "trophy"],
       ["/student/profile", "Profile", "user"]]],
   ],
   instructor: [
-    ["", [["/instructor/dashboard", "Class overview", "chart"], ["/instructor/assignments", "Assignments", "book"],
+    ["", [["/instructor/dashboard", "Overview", "chart"], ["/instructor/assignments", "Assignments", "book"],
       ["/instructor/students", "Students", "users"]]],
-    ["Explore", [["/labs", "Labs", "flask"], ["/grader", "Practice", "zap"], ["/student/leaderboard", "Leaderboard", "trophy"]]],
+    ["Course tools", [["/labs", "Labs", "flask"], ["/grader", "Practice grading", "zap"], ["/student/leaderboard", "Leaderboard", "trophy"]]],
     ["Admin", [["/system", "Platform health", "activity"], ["/student/profile", "Profile", "user"]]],
   ],
 };
+// Instructors work at a desk: their sections run across the top bar instead of a sidebar.
+const TABS = [["/instructor/dashboard", "Overview"], ["/instructor/students", "Students"], ["/instructor/assignments", "Assignments"],
+  ["/labs", "Labs"], ["/grader", "Practice grading"], ["/student/leaderboard", "Leaderboard"], ["/system", "Platform health"]];
 const MOBILE = {
   student: [["/student/dashboard", "Home", "home"], ["/student/assignments", "Assignments", "book"], ["/labs", "Labs", "flask"],
     ["/student/submissions", "Results", "list"], ["/student/profile", "Profile", "user"]],
@@ -74,34 +77,46 @@ window.__refresh = () => render({ keepScroll: true, quiet: true });
 const isActive = (href, path) => path === href || (href !== "/" && path.startsWith(href + "/"))
   || (href === "/student/assignments" && path.startsWith("/student/assignment/"));
 
+async function signOut() {
+  await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+  state.user = null;
+  toast("You're signed out.");
+  navigate("/");
+}
+
 function renderShell() {
   const u = state.user;
   const path = location.pathname;
   document.body.classList.toggle("guest", !u);
+  document.body.classList.toggle("role-student", u?.role === "student");
+  document.body.classList.toggle("role-instructor", u?.role === "instructor");
   if (u) {
+    const current = (href) => isActive(href, path) ? ' class="active" aria-current="page"' : "";
+    $("#brand-sub").textContent = u.role === "instructor" ? "Instructor workspace" : "Full-stack course";
     $("#sidebar-nav").innerHTML = NAV[u.role].map(([section, items]) => `<div class="nav-sec">${section ? `<div class="nav-h">${esc(section)}</div>` : ""}
       ${items.map(([href, label, ico]) => {
         const active = isActive(href, path);
-        return `<a href="${href}" class="nav-a${active ? " active" : ""}"${active ? ' aria-current="page"' : ""}>${icon(ico)}${esc(label)}</a>`;
+        return `<a href="${href}" class="nav-a${active ? " active" : ""}"${active ? ' aria-current="page"' : ""}>${icon(ico)}<span>${esc(label)}</span></a>`;
       }).join("")}</div>`).join("");
     $("#mobile-nav").innerHTML = MOBILE[u.role].map(([href, label, ico]) =>
-      `<a href="${href}" class="${isActive(href, path) ? "active" : ""}">${icon(ico)}${esc(label)}</a>`).join("");
+      `<a href="${href}"${current(href)}>${icon(ico)}<span>${esc(label)}</span></a>`).join("");
+    $("#role-tabs").innerHTML = u.role === "instructor" ? TABS.map(([href, label]) => `<a href="${href}"${current(href)}>${esc(label)}</a>`).join("") : "";
     const initials = u.name.split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+    const role = u.role === "instructor" ? "Instructor" : `Student${u.entry_no ? `, ${esc(u.entry_no)}` : ""}`;
     $("#side-foot").innerHTML = `<div class="user-card"><a href="/student/profile" class="avatar" aria-label="Your profile">${esc(initials)}</a>
-      <div class="who grow"><b>${esc(u.name)}</b><span>${esc(u.role)}${u.entry_no ? " · " + esc(u.entry_no) : ""}</span></div>
-      <button class="icon-btn" id="logout" type="button" aria-label="Sign out" title="Sign out">${icon("logout")}</button></div>`;
+      <div class="who grow"><b>${esc(u.name)}</b><span>${role}</span></div>
+      <button class="icon-btn" data-signout type="button" aria-label="Sign out" title="Sign out">${icon("logout")}</button></div>`;
+    $("#top-user").innerHTML = u.role === "instructor" ? `<a href="/student/profile" class="avatar" aria-label="Your profile" title="${esc(u.name)}">${esc(initials)}</a>
+      <button class="icon-btn" data-signout type="button" aria-label="Sign out" title="Sign out">${icon("logout")}</button>` : "";
     $("#top-links").innerHTML = "";
-    $("#logout").addEventListener("click", async () => {
-      await api("/api/auth/logout", { method: "POST" }).catch(() => {});
-      state.user = null;
-      toast("You're signed out. See you soon!");
-      navigate("/");
-    });
+    document.querySelectorAll("[data-signout]").forEach((b) => b.addEventListener("click", signOut));
   } else {
     $("#sidebar-nav").innerHTML = "";
     $("#mobile-nav").innerHTML = "";
     $("#side-foot").innerHTML = "";
-    $("#top-links").innerHTML = `<a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a><a href="/signup" class="btn sm">Get started</a>`;
+    $("#role-tabs").innerHTML = "";
+    $("#top-user").innerHTML = "";
+    $("#top-links").innerHTML = `<a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a><a href="/signup" class="btn sm">Create account</a>`;
   }
 }
 
@@ -179,8 +194,8 @@ document.addEventListener("click", (e) => {
 });
 window.addEventListener("popstate", () => render());
 $("#menu-btn").innerHTML = icon("menu");
-$("#logo-side").innerHTML = icon("graduation");
-$("#logo-top").innerHTML = icon("graduation");
+$("#logo-side").innerHTML = icon("check");
+$("#logo-top").innerHTML = icon("check");
 $("#menu-btn").addEventListener("click", () => {
   const open = $("#app").classList.toggle("nav-open");
   $("#menu-btn").setAttribute("aria-expanded", String(open));

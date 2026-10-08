@@ -41,20 +41,22 @@ async function complete(lab, task, { serverRecorded = false } = {}) {
 }
 
 function header(l, extra = "") {
-  return pageHeader(`<a href="/labs">Labs</a> / ${esc(l.track)}`, esc(l.title), esc(l.summary), extra);
+  const track = String(l.track || "");
+  return pageHeader(`<a href="/labs">Labs</a> / ${esc(track.charAt(0).toUpperCase() + track.slice(1))}`, esc(l.title), esc(l.summary), extra);
 }
 
 export async function index(view) {
   await loadCatalog();
   const total = catalog.total_tasks, doneN = catalog.completed;
-  view.innerHTML = `${pageHeader("Practice", "Labs", "Learn each part of the stack hands-on: frontend, databases, load balancers, networks and Docker. Everything runs in your browser.",
-      state.user ? `<div class="best-badge"><span class="stat-ico" style="width:44px;height:44px">${icon("flask")}</span><div><span>Your progress</span><b>${doneN} of ${total} tasks</b></div></div>` : "")}
+  view.innerHTML = `${pageHeader("", "Labs", "Practise each part of the stack hands-on: frontend, databases, load balancers, networks and Docker. Everything runs in your browser.",
+      state.user ? `<div class="best-badge"><span class="stat-ico">${icon("flask")}</span><div><span>Your progress</span><b>${doneN} of ${total} tasks</b></div></div>` : "")}
     <section class="cards labs">${catalog.labs.map((l) => {
       const d = (catalog.progress[l.id] || []).length;
-      return `<article class="card lab-card"><div class="lab-ico">${icon(LAB_ICON[l.id] || "flask")}</div>
+      return `<article class="card lab-card"><div class="lab-top"><span class="lab-ico">${icon(LAB_ICON[l.id] || "flask")}</span>
+          <span class="lab-n">${d} of ${l.tasks.length} done</span></div>
         <h2><a href="/labs/${l.id}">${esc(l.title)}</a></h2><p>${esc(l.summary)}</p>
         <ul class="mini-tasks">${l.tasks.map((t) => `<li class="${isDone(l.id, t.id) ? "done" : ""}">${icon(isDone(l.id, t.id) ? "checkCircle" : "target")} ${esc(t.title)}</li>`).join("")}</ul>
-        <div class="card-foot">${progressBar(d, l.tasks.length, `${l.title} progress`)}<a class="btn sm" href="/labs/${l.id}">${d === l.tasks.length ? "Review" : d ? "Continue" : "Start"}</a></div></article>`;
+        <div class="card-foot">${progressBar(d, l.tasks.length, `${l.title} progress`)}<a class="${d ? "ghost" : "btn"} sm" href="/labs/${l.id}">${d === l.tasks.length ? "Review" : d ? "Continue" : "Start"}</a></div></article>`;
     }).join("")}</section>`;
 }
 
@@ -263,7 +265,7 @@ async function databaseLab(view, l) {
 }
 
 // ======================================================================== Load-balancer lab
-const LB_COLORS = ["#7c83ff", "#22d3ee", "#22c55e", "#f59e0b", "#f43f5e", "#a78bfa", "#14b8a6", "#eab308"];
+const LB_COLORS = ["#2140d9", "#0e8fb0", "#16794a", "#c27410", "#c4302b", "#6d4fc2", "#0f766e", "#8a6d00"];
 
 function lbLab(view, l) {
   const used = new Set();
