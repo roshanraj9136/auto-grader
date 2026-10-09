@@ -109,9 +109,10 @@ def require_instructor(user: dict = Depends(require_user)) -> dict:
 
 
 # ---- public demo accounts ----------------------------------------------------------------
-# With AUTOGRADER_DEMO_SEED=1 anyone may sign in as these, so they are read-only where it matters:
-# the demo instructor can look at everything but cannot change grades or assignments, and no demo
-# login can change its own password or name. Sample classmates live under DEMO_CLASS_DOMAIN.
+# With AUTOGRADER_DEMO_SEED=1 anyone may sign in as the demo student, so demo logins are read-only where it
+# matters: none can change its own password or name, and none may act as an instructor. The old demo instructor
+# login is retired (deleted at start-up) but stays reserved and read-only here as a second line of defence.
+# Sample classmates live under DEMO_CLASS_DOMAIN.
 DEMO_LOGINS = frozenset({"instructor@autograder.local", "student@autograder.local"})
 DEMO_CLASS_DOMAIN = "demo.autograder.local"
 
@@ -124,13 +125,13 @@ def is_demo_account(user: dict | None) -> bool:
 def require_instructor_write(user: dict = Depends(require_instructor)) -> dict:
     """Instructor actions that change data (grades, assignments, regrading)."""
     if is_demo_account(user):
-        raise HTTPException(status_code=403, detail="The public demo instructor is read-only. "
-                                                    "Sign in with the real instructor account to make changes.")
+        raise HTTPException(status_code=403, detail="Demo accounts are read-only. "
+                                                    "Sign in with the instructor account to make changes.")
     return user
 
 
 def visible_email(viewer: dict | None, email: str | None) -> str | None:
-    """Real students' email addresses are not shown to the public demo instructor."""
+    """Real students' email addresses are never shown to a demo account."""
     if not email or not is_demo_account(viewer) or email.lower().endswith("@" + DEMO_CLASS_DOMAIN)             or email.lower() in DEMO_LOGINS:
         return email
     return "hidden in the demo"

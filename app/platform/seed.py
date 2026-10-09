@@ -12,9 +12,11 @@ from .security import DEMO_CLASS_DOMAIN, hash_password
 log = logging.getLogger("autograder.seed")
 
 DEMO_USERS = [
-    ("instructor@autograder.local", "Course Instructor", None, "instructor", "instructor123"),
     ("student@autograder.local", "Demo Student", "2024CS10001", "student", "student123"),
 ]
+# The public demo no longer has an instructor login: the instructor side is shown by the course instructor with
+# their own account. Remove the old one wherever it was created.
+RETIRED_DEMO_LOGINS = ["instructor@autograder.local"]
 
 ASSIGNMENTS = [
     {
@@ -66,6 +68,7 @@ def _add_user(t: Tx, email: str, name: str, entry_no: str | None, role: str, pas
 
 
 def seed(t: Tx) -> None:
+    t.run(f"DELETE FROM users WHERE email IN ({', '.join('?' for _ in RETIRED_DEMO_LOGINS)})", RETIRED_DEMO_LOGINS)
     if config.INSTRUCTOR_EMAIL and config.INSTRUCTOR_PASSWORD:
         _add_user(t, config.INSTRUCTOR_EMAIL, "Instructor", None, "instructor", config.INSTRUCTOR_PASSWORD)
     demo_emails = [u[0] for u in DEMO_USERS]
@@ -74,8 +77,8 @@ def seed(t: Tx) -> None:
         for email, name, entry, role, pw in DEMO_USERS:
             if email not in existing:
                 _add_user(t, email, name, entry, role, pw)
-        log.warning("Demo accounts are enabled (AUTOGRADER_DEMO_SEED=1): instructor@autograder.local / instructor123, "
-                    "student@autograder.local / student123. Disable before exposing this server to untrusted users.")
+        log.warning("Demo mode (AUTOGRADER_DEMO_SEED=1): public student login student@autograder.local / student123, "
+                    "sign-up closed. Set AUTOGRADER_INSTRUCTOR_EMAIL/PASSWORD for the instructor account.")
     else:
         # Turning the flag off must also revoke the well-known demo logins created earlier.
         removed = t.run(f"DELETE FROM users WHERE email IN ({', '.join('?' for _ in demo_emails)}) OR email LIKE ?",

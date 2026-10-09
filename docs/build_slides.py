@@ -460,7 +460,7 @@ def s_security():
             ["Stolen database", "scrypt password hashes; session tokens stored only as SHA-256"],
             ["Students reading others' data", "every instructor route checks the role on the server; reports only for their owner"],
             ["Password guessing", "throttled per client IP (Cloudflare header, never forgeable X-Forwarded-For) and per account"],
-            ["Public demo misuse", "sign-up closed in demo mode; demo instructor read-only on the server"],
+            ["Public demo misuse", "only a demo student login is public; sign-up closed; demo logins read-only"],
             ["Grade tampering", "adjusted grade pinned in every view until restored; no student endpoint writes a score"],
             ["Cross-site attacks", "SameSite + Secure cookies, cross-site request blocking, strict CSP, HSTS, no framing"],
             ["Spreadsheet injection", "CSV gradebook neutralises formulas"]]
@@ -468,8 +468,8 @@ def s_security():
     notes(s, "Security covers both the grader, which runs untrusted student code, and the platform. Repository input is restricted, "
              "secrets are redacted before anything reaches a model, and the Docker sandbox is locked down. On the platform side, "
              "roles are checked on the server for every instructor action, so a student cannot change any grade, sign-in is "
-             "throttled against password guessing, and the public demo instructor cannot change anything. We verified these with "
-             "an automated script of 51 checks.")
+             "throttled against password guessing, and the public demo has only a student login. We verified these with "
+             "an automated script of 44 checks.")
 
 
 def s_student():
@@ -573,7 +573,7 @@ def s_limits():
 def s_demo():
     s = new_slide("Live demo", "Thank you")
     steps = [f"Open {LIVE_URL} (allow a minute if it was asleep)", "Sign in → Student view: dashboard, feedback, labs",
-             "Submit a repository and watch the reviewers run", "Sign in → Instructor view (read-only demo)",
+             "Submit a repository and watch the reviewers run", "Sign in with the instructor account",
              "Overview → Gradebook → an assignment's analytics", "How it works: architecture and live latency"]
     for i, st in enumerate(steps):
         y = 1.6 + i * 0.72

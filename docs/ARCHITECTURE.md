@@ -206,12 +206,12 @@ This matches the proposed next version of the course Autograder: a platform that
 |---|---|
 | Role checks | Every instructor route depends on `require_instructor`; writes (assignments, adjustments, re-grades) on `require_instructor_write`, which also rejects public demo accounts. Signup always creates a student. |
 | Data isolation | Students read only their own submissions; reports and live streams (including the database-backed stream) go through `require_job_access`: owner, instructor or API token. |
-| Public demo | With `AUTOGRADER_DEMO_SEED=1`, sign-up is closed (a published instructor login must never see real students), the demo instructor is read-only on the server, emails of any non-demo student are replaced by "hidden in the demo" in every instructor response and the CSV, and demo logins cannot change their name or password. Addresses under `autograder.local` are reserved. |
+| Public demo | With `AUTOGRADER_DEMO_SEED=1`, only a demo *student* login is public; there is no public instructor login (the old one is deleted at start-up). Sign-up is closed, demo logins cannot change their name or password, and any demo account is refused every instructor write and never sees real students' emails. Addresses under `autograder.local` are reserved. |
 | Brute force | Failed sign-ins are throttled per client IP (10 per 15 min) and per account (100 per 15 min, so a stranger cannot lock the instructor out with a few guesses); wrong join codes per IP (8 per hour) and in total (200 per hour); the join code is compared in constant time. Counters are per replica and in memory. |
 | Client address | Throttles key on an address the client cannot forge: the edge proxy's header (`AUTOGRADER_CLIENT_IP_HEADER`: `cf-connecting-ip` on Render, which sits behind Cloudflare; `x-real-ip` behind the bundled Nginx), otherwise the right-most `X-Forwarded-For` hop. Never the left-most hop, which the client writes. |
 | Grade integrity | An adjusted grade is pinned: it replaces the student's best attempt for that assignment in every view (dashboard, gradebook, analytics, leaderboard, CSV), including attempts submitted later, until the instructor restores it. Re-running is refused when the original inputs are not stored (practice runs with a custom rubric, uploaded Dockerfiles). |
 | Browser | HttpOnly + SameSite=Lax + Secure cookies, Fetch-Metadata / Origin check on state-changing API calls, strict CSP, HSTS over HTTPS, `X-Frame-Options`, `Permissions-Policy`, `nosniff`. All user data is HTML-escaped before rendering. |
-| Verification | `scripts/security_check.py` runs 51 checks against a demo-mode server as a visitor, a student, the demo instructor and the real instructor. |
+| Verification | `scripts/security_check.py` runs its checks against a demo-mode server as a visitor, the demo student and the real instructor. |
 
 ## 13. Scaling roadmap
 
