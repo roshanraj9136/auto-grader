@@ -85,7 +85,8 @@ export function icon(name, cls = "") {
   return `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name] || ICONS.star}</svg>`;
 }
 export const DIM_ICON = { code_quality: "code", architecture: "layers", security: "shield", testing: "testCheck", devops: "box" };
-export const LAB_ICON = { frontend: "code", database: "database", loadbalancer: "network", network: "globe", docker: "box" };
+export const LAB_ICON = { frontend: "code", database: "database", loadbalancer: "network", network: "globe", docker: "box",
+  testing: "testCheck" };
 
 export function fmtDate(iso, withTime = false) {
   if (!iso) return "";
