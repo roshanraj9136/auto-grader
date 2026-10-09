@@ -25,7 +25,7 @@ export async function home(view) {
         <a class="btn lg" href="${startHref()}">${startText()}</a>
         <a class="ghost lg" href="/how-it-works">How it works</a>
       </div>
-      ${state.demo ? `<p class="demo">This is a public demo: sign in as a student, or as a read-only instructor.</p>` : ""}
+      ${state.demo ? `<p class="demo">This is a public demo: open the student view with one click on the sign-in page.</p>` : ""}
     </div>
     <figure class="sheet-demo" aria-label="Example feedback for a student's REST API: 76 out of 100, grade B">
       <div class="sd-top"><code>aarav-s/campus-events-api</code><span>commit 3f9c2a1</span></div>
@@ -113,10 +113,8 @@ export async function login(view, _p, query) {
       <p class="error" id="err" role="alert"></p>
       <button class="btn block lg" type="submit">Sign in</button>
       ${state.demo ? "" : `<p class="hint" style="margin-top:16px">New here? <a href="/signup">Create a student account</a></p>`}
-      ${state.demo ? `<div class="demo-box"><p>Or look around with a demo account:</p><div class="demo-btns">
-        <button type="button" class="ghost" data-demo="student">${icon("user")} Student view</button>
-        <button type="button" class="ghost" data-demo="instructor">${icon("users")} Instructor view</button></div>
-        <p class="hint" style="margin:10px 0 0">The demo instructor is read-only: it can open every page but cannot change grades.</p></div>` : ""}
+      ${state.demo ? `<div class="demo-box"><p>Or look around as a student, no account needed:</p><div class="demo-btns one">
+        <button type="button" class="ghost" data-demo="student">${icon("user")} Open the student view</button></div></div>` : ""}
     </form>`);
   const submit = async (email, password) => {
     $("#err").textContent = "";

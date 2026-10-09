@@ -8,7 +8,7 @@
 
 ## Try it
 
-Open the live link and, on the sign-in page, choose **Student view** or **Instructor view**. The instructor demo is read-only: it can open every page but cannot change grades or assignments. The site runs on a free plan, so the first visit after a quiet period takes about a minute.
+Open the live link and choose **Open the demo**, then **Open the student view**. The instructor side needs the instructor account, so it is not public. The site runs on a free plan, so the first visit after a quiet period takes about a minute.
 
 ## What it does
 
@@ -25,7 +25,7 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt     # Windows:
 .venv/bin/python -m uvicorn app.main:app --port 8000                   # http://localhost:8000
 ```
 
-Demo accounts and sample assignments are created on first start (SQLite, no setup). For the full stack with a load balancer, three API replicas and PostgreSQL:
+A demo student account and sample assignments are created on first start (SQLite, no setup). For an instructor account, set `AUTOGRADER_INSTRUCTOR_EMAIL` and `AUTOGRADER_INSTRUCTOR_PASSWORD` before starting. For the full stack with a load balancer, three API replicas and PostgreSQL:
 
 ```bash
 docker compose up --build            # http://localhost:8080
@@ -43,7 +43,7 @@ Without `ANTHROPIC_API_KEY` the reviewers use rule-based scorers through the sam
 | [docs/AutoGrader.pptx](docs/AutoGrader.pptx) / [PDF](docs/AutoGrader-Slides.pdf) | Slides with speaker notes |
 | `/docs` on any instance | Interactive API reference |
 
-Rebuild the report and slides with `python docs/build_report.py` and `python docs/build_slides.py`. Measure the pipeline with `python scripts/latency_benchmark.py <repo-url>`, and verify access control with `scripts/security_check.py` (51 checks).
+Rebuild the report and slides with `python docs/build_report.py` and `python docs/build_slides.py`. Measure the pipeline with `python scripts/latency_benchmark.py <repo-url>`, and verify access control with `scripts/security_check.py` (44 checks).
 
 ## Project layout
 
@@ -62,7 +62,7 @@ scripts/      local launcher, latency benchmark, security check, icon generator
 2. Click [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/roshanraj9136/auto-grader) and fill in the database URL, an instructor email and password, and a class join code.
 3. Every push to `main` redeploys automatically.
 
-`AUTOGRADER_DEMO_SEED=1` (set in `render.yaml`) turns on the public demo: the demo logins and a sample class whose public repositories are graded by the real pipeline. Set it to `0` for a real class; that also removes the demo accounts.
+`AUTOGRADER_DEMO_SEED=1` (set in `render.yaml`) turns on the public demo: a one-click student login, a sample class whose public repositories are graded by the real pipeline, and closed sign-up. Set it to `0` for a real class; that also removes the demo accounts.
 
 ## Main settings
 
@@ -71,7 +71,7 @@ scripts/      local launcher, latency benchmark, security check, icon generator
 | `AUTOGRADER_DATABASE_URL` | PostgreSQL URL (SQLite in the work directory if unset) |
 | `AUTOGRADER_INSTRUCTOR_EMAIL`, `_PASSWORD` | The real instructor account |
 | `AUTOGRADER_SIGNUP_CODE` | Class join code students need to sign up |
-| `AUTOGRADER_DEMO_SEED` | 1 = public demo accounts and sample class |
+| `AUTOGRADER_DEMO_SEED` | 1 = public demo student and sample class, sign-up closed |
 | `ANTHROPIC_API_KEY` | Turns on LLM reviewers |
 | `AUTOGRADER_MAX_CONCURRENT_JOBS` | Gradings per replica at the same time |
 | `AUTOGRADER_ENABLE_DOCKER` | 1 = build and run student Dockerfiles in the sandbox (use an isolated host) |

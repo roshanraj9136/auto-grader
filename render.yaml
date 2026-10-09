@@ -28,8 +28,8 @@ services:
         sync: false
       - key: AUTOGRADER_SIGNUP_CODE        # class join code students need to sign up
         sync: false
-      # Public showcase: demo student + read-only demo instructor + a sample class graded on start-up.
-      # The demo instructor cannot change grades or assignments, and real students' emails are hidden from it.
+      # Public showcase: a one-click demo student + a sample class graded on start-up; sign-up is closed.
+      # There is no public instructor login: the instructor uses AUTOGRADER_INSTRUCTOR_EMAIL / _PASSWORD.
       # Set to "0" for a real class (this also deletes the demo accounts).
       - key: AUTOGRADER_DEMO_SEED
         value: "1"

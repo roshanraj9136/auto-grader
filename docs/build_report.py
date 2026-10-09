@@ -108,7 +108,7 @@ grading progress, detailed feedback, a progress dashboard and hands-on labs. Ins
 attention, a gradebook, per-assignment analytics with copy detection, student profiles, grade adjustments with written reasons, and
 re-grading. The system runs as stateless API replicas behind a load balancer with PostgreSQL, and is deployed on Render with Neon.</p>
 <div class="facts"><div><b>6</b><span>agents per grading: 5 reviewers, 1 judge</span></div><div><b>2.74&times;</b><span>faster than the same stages in sequence</span></div>
-<div><b>1.2 s</b><span>re-grade of unchanged code (cache hit)</span></div><div><b>51</b><span>automated security and access checks, all passing</span></div></div>
+<div><b>1.2 s</b><span>re-grade of unchanged code (cache hit)</span></div><div><b>44</b><span>automated security and access checks, all passing</span></div></div>
 </section></section>
 
 <section><h2><span class="n">2</span>Problem and goals</h2>
@@ -272,18 +272,18 @@ University at Buffalo.</p>
     ["Students changing grades", "Every instructor endpoint checks the role on the server. No student endpoint writes a score. Students can read only their own submissions and reports."],
     ["Password and join-code guessing", "Sign-in is throttled per IP (10 failures / 15 min) and per account (100 / 15 min, so nobody can lock the instructor out); wrong join codes per IP and in total; comparisons are constant-time; unknown emails take as long to reject as wrong passwords."],
     ["Forged client addresses", "Throttles use an address the client cannot write: Cloudflare's CF-Connecting-IP on Render, X-Real-IP behind the bundled Nginx, otherwise the right-most X-Forwarded-For hop. A live test showed Render forwards the client's own X-Forwarded-For value first, which is why the left-most hop is never trusted."],
-    ["Public demo misuse", "Sign-up is closed in demo mode, so real students never share a server with a published instructor login; the demo instructor is read-only on the server (no grade, assignment or re-grade changes); demo logins cannot change their password or name."],
+    ["Public demo misuse", "Only a demo student login is public; the instructor side needs the instructor's own account. Sign-up is closed in demo mode; demo logins cannot change their password or name, and the server refuses them every instructor action."],
     ["Grade integrity", "An adjusted grade is pinned as the assignment grade in every view, even over later or higher attempts, until restored; re-runs are refused when the original inputs (custom rubric, uploaded Dockerfile) are not stored."],
     ["Cross-site attacks", "HttpOnly, SameSite=Lax, Secure cookies; state-changing API calls from other sites are rejected (Fetch Metadata and Origin checks); strict Content-Security-Policy; HSTS; framing by other sites is blocked; the frontend lab runs student code in a sandboxed iframe."],
     ["Spreadsheet injection", "The CSV gradebook neutralises cells that start with =, +, - or @."],
 ])}
 <h3>Verification</h3>
-<p>An automated script (<code>scripts/security_check.py</code>) signs in as an anonymous visitor, a student, the public demo instructor and the
-real instructor and runs 51 checks, including: students and visitors are refused every instructor endpoint; students cannot adjust, re-grade,
-create or delete; the demo instructor cannot change anything; adjustments are validated (0&ndash;100, reason required) and reversible;
+<p>An automated script (<code>scripts/security_check.py</code>) signs in as an anonymous visitor, the demo student and the
+real instructor and runs 44 checks, including: students and visitors are refused every instructor endpoint; students cannot adjust, re-grade,
+create or delete; the retired demo instructor login no longer works; adjustments are validated (0&ndash;100, reason required) and reversible;
 students cannot read other students' reports; reserved emails cannot be registered; brute-force sign-in is throttled; cross-site requests are
 blocked; a lowered grade sticks over a higher attempt; practice runs cannot be re-run without their rubric; forged
-<code>X-Forwarded-For</code> headers do not reset the sign-in throttle; security headers are present. All 51 pass.</p>
+<code>X-Forwarded-For</code> headers do not reset the sign-in throttle; security headers are present. All 44 pass.</p>
 </section>
 
 <section><h2><span class="n">11</span>Student experience</h2>
@@ -345,7 +345,7 @@ grades every student's latest submission again after a rubric change.</p>
 <ul>
 <li><b>Image:</b> multi-stage Docker build, pinned base images, dependencies installed before source for layer caching, non-root user, health check, exec-form command.</li>
 <li><b>Production:</b> Render web service (free plan, Singapore, auto-deploys every push to main) with a Neon PostgreSQL database (free, Singapore). Reports are stored in the database because the free plan's disk is wiped on restart; the service sleeps after 15 idle minutes and wakes in about a minute.</li>
-<li><b>Public demo mode</b> (<code>AUTOGRADER_DEMO_SEED=1</code>): demo student and read-only demo instructor logins, and a sample class whose public repositories are graded by the real pipeline on start-up. Turn it off for a real class.</li>
+<li><b>Public demo mode</b> (<code>AUTOGRADER_DEMO_SEED=1</code>): a one-click demo student login (no public instructor login), closed sign-up, and a sample class whose public repositories are graded by the real pipeline on start-up. Turn it off for a real class.</li>
 <li><b>Local:</b> <code>docker compose up</code> runs Nginx, three replicas and PostgreSQL; <code>scripts/start.ps1</code> runs a single process with SQLite.</li>
 <li><b>Configuration:</b> database URL, instructor account, class join code, demo mode, Docker sandbox, concurrency, model names and timeouts are environment variables.</li>
 </ul>

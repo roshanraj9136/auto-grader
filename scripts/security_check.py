@@ -49,7 +49,7 @@ def check(name, ok, info=""):
 
 anon = client()
 st = client(); st("POST", "/api/auth/login", {"email": "student@autograder.local", "password": "student123"})
-demo_i = client(); demo_i("POST", "/api/auth/login", {"email": "instructor@autograder.local", "password": "instructor123"})
+demo_i = client()
 real = client(); code, r = real("POST", "/api/auth/login", {"email": REAL[0], "password": REAL[1]})
 check("real instructor can sign in", code == 200, f"{code} {r}")
 
@@ -76,30 +76,15 @@ check("student cannot create assignments", c == 403, c)
 c, _ = st("DELETE", "/api/assignments/1")
 check("student cannot delete assignments", c == 403, c)
 
-# --- the public demo instructor is read-only
+# --- there is no public instructor login
+c, _ = demo_i("POST", "/api/auth/login", {"email": "instructor@autograder.local", "password": "instructor123"})
+check("the retired demo instructor login no longer works", c == 401, c)
 c, _ = demo_i("GET", "/api/instructor/gradebook")
-check("demo instructor can read the gradebook", c == 200, c)
-c, r = demo_i("POST", f"/api/instructor/submissions/{sid}/override", {"score": 100, "reason": "demo vandal"})
-check("demo instructor cannot override grades", c == 403, f"{c} {r}")
-c, _ = demo_i("DELETE", f"/api/instructor/submissions/{sid}/override")
-check("demo instructor cannot revert grades", c == 403, c)
-c, _ = demo_i("POST", f"/api/instructor/submissions/{sid}/regrade")
-check("demo instructor cannot regrade", c == 403, c)
-c, _ = demo_i("POST", "/api/instructor/assignments/1/regrade")
-check("demo instructor cannot regrade an assignment", c == 403, c)
-c, _ = demo_i("POST", "/api/assignments", {"title": "vandal assignment"})
-check("demo instructor cannot create assignments", c == 403, c)
-c, _ = demo_i("PUT", "/api/assignments/1", {"title": "vandalised"})
-check("demo instructor cannot edit assignments", c == 403, c)
-c, _ = demo_i("DELETE", "/api/assignments/1")
-check("demo instructor cannot delete assignments", c == 403, c)
-c, _ = demo_i("POST", "/api/me/password", {"current": "instructor123", "new": "takeover123"})
-check("demo instructor cannot change its password", c == 403, c)
+check("so the public cannot open instructor data", c == 401, c)
 c, _ = st("PUT", "/api/me", {"name": "Hacked Name"})
 check("demo student cannot rename itself", c == 403, c)
-c, gb = demo_i("GET", "/api/instructor/gradebook")
-real_emails = [s["email"] for s in gb["students"] if not s["email"].endswith("autograder.local")]
-check("real student emails hidden from the demo instructor", all(e == "hidden in the demo" for e in real_emails), real_emails[:3])
+c, _ = st("POST", "/api/me/password", {"current": "student123", "new": "takeover123"})
+check("demo student cannot change its password", c == 403, c)
 
 # --- the real instructor can adjust and revert
 c, r = real("POST", f"/api/instructor/submissions/{sid}/override", {"score": 91.5, "reason": "Manual review: tests exist in CI"})

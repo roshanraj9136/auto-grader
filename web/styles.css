@@ -546,7 +546,7 @@ th.sort[aria-sort] { color: var(--ink); }
 .auth-card > .hint { margin: 8px 0 6px; }
 .demo-box { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--rule); }
 .demo-box p { font-size: .92rem; color: var(--ink-2); margin: 0 0 10px; }
-.demo-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.demo-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .demo-btns.one { grid-template-columns: 1fr; }
 
 /* ---------- leaderboard ---------- */
 .podium { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-lg); margin-bottom: var(--gap); }
