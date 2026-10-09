@@ -34,6 +34,8 @@ services:
       replicas: ${API_REPLICAS:-3}
     environment:
       AUTOGRADER_DATABASE_URL: postgresql://autograder:${POSTGRES_PASSWORD:-autograder-local-only}@db:5432/autograder
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
       AUTOGRADER_LLM_API_KEY: ${AUTOGRADER_LLM_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AUTOGRADER_AGENT_MODEL: ${AUTOGRADER_AGENT_MODEL:-}

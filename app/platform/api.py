@@ -519,6 +519,17 @@ def leaderboard(user: dict = Depends(require_user)):  # names + entry numbers: c
     return {"rows": rows, "me": me_row}
 
 
+def skill_averages(user_id: int, recent: int = 10) -> dict[str, float | None]:
+    """Average mark per dimension (0-10) over the student's most recent graded submissions."""
+    rows = get_db().all("SELECT dims FROM submissions WHERE user_id = ? AND status = 'done' AND final_score IS NOT NULL "
+                        "ORDER BY created_at DESC, id DESC LIMIT ?", (user_id, recent))
+    by_dim: dict[str, list[float]] = defaultdict(list)
+    for r in rows:
+        for d, v in loads(r["dims"], {}).items():
+            by_dim[d].append(v)
+    return {d: round(sum(by_dim[d]) / len(by_dim[d]), 1) if by_dim.get(d) else None for d in DIMENSIONS}
+
+
 @router.get("/api/student/dashboard")
 def student_dashboard(user: dict = Depends(require_user)):
     db = get_db()

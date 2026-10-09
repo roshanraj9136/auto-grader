@@ -45,11 +45,25 @@ function header(l, extra = "") {
   return pageHeader(`<a href="/labs">Labs</a> / ${esc(track.charAt(0).toUpperCase() + track.slice(1))}`, esc(l.title), esc(l.summary), extra);
 }
 
+const DIM_CLASS = { code_quality: "a-code", architecture: "a-arch", security: "a-sec", testing: "a-test", devops: "a-ops" };
+
+/** "Start here": the next tasks, weakest marked area first. The server picks them from the student's own grades. */
+function planPanel(rec) {
+  if (!rec?.length) return "";
+  const measured = rec.some((t) => t.reason !== "Next up");
+  return `<section class="panel next-up"><div class="panel-h"><h2>${icon("target")} Start here</h2>
+      <span class="hint">${measured ? "Picked from your lowest marks" : "A good order to begin in"}</span></div>
+    <div class="mini-plan">${rec.map((t) => `<a class="plan-row ${DIM_CLASS[t.dimension] || "a-code"}" href="/labs/${esc(t.lab)}">
+      ${icon(LAB_ICON[t.lab] || "flask")}<div><b>${esc(t.title)}</b><span>${esc(t.lab_title)}</span></div>
+      <span class="why">${esc(t.reason)}</span></a>`).join("")}</div></section>`;
+}
+
 export async function index(view) {
   await loadCatalog();
   const total = catalog.total_tasks, doneN = catalog.completed;
   view.innerHTML = `${pageHeader("", "Labs", "Practise each part of the stack hands-on: frontend, databases, load balancers, networks and Docker. Everything runs in your browser.",
       state.user ? `<div class="best-badge"><span class="stat-ico">${icon("flask")}</span><div><span>Your progress</span><b>${doneN} of ${total} tasks</b></div></div>` : "")}
+    ${planPanel(catalog.recommended)}
     <section class="cards labs">${catalog.labs.map((l) => {
       const d = (catalog.progress[l.id] || []).length;
       return `<article class="card lab-card"><div class="lab-top"><span class="lab-ico">${icon(LAB_ICON[l.id] || "flask")}</span>

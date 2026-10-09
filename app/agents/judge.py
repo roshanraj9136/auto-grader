@@ -117,9 +117,11 @@ class JudgeAgent:
         user = (f"## Rubric weights\n{json.dumps(rubric.weights)}\n\n## Instructor notes\n{rubric.notes or '(none)'}\n\n"
                 f"## Repository facts\n{json.dumps(stats)}\n\n## Docker sandbox\n{json.dumps(dock)}\n\n"
                 f"## Specialist reports\n{json.dumps(compact, indent=1)}\n\nCall `submit_verdict` now.")
-        data, usage = await call_tool(model=config.JUDGE_MODEL, system=[{"type": "text", "text": JUDGE_SYSTEM}],
-                                      user=user, tool=_verdict_tool(list(rubric.weights)), max_tokens=config.JUDGE_MAX_TOKENS)
-        return self._finalize(reports, rubric, data, usage)
+        data, usage, model = await call_tool(role="judge", system=[{"type": "text", "text": JUDGE_SYSTEM}],
+                                             user=user, tool=_verdict_tool(list(rubric.weights)), max_tokens=config.JUDGE_MAX_TOKENS)
+        verdict = self._finalize(reports, rubric, data, usage)
+        verdict.model = model
+        return verdict
 
     def _finalize(self, reports, rubric: Rubric, data: dict, usage: TokenUsage) -> JudgeVerdict:
         by_dim = {r.dimension: r for r in reports}
