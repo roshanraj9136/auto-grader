@@ -5,6 +5,7 @@ are grade adjustments, which keep the original score in `grade_overrides` so the
 """
 from __future__ import annotations
 
+import logging
 import statistics
 from collections import defaultdict
 from datetime import datetime
@@ -17,8 +18,9 @@ from .api import (DIMENSIONS, GRADES, _sub_out, get_assignment, leaderboard_rows
                   with_overrides)
 from .db import get_db, iso_ago, loads, now_iso
 from .labs import user_progress
-from .security import require_instructor, require_instructor_write, visible_email
+from .security import is_demo_account, require_instructor, require_instructor_write, visible_email
 
+log = logging.getLogger("autograder.instructor")
 router = APIRouter(prefix="/api/instructor", dependencies=[Depends(require_instructor)])
 LOW_SCORE = 50  # best-try average below this marks a student as needing help
 
@@ -49,6 +51,46 @@ def _stats(values: list[float]) -> dict:
 
 def _students() -> list[dict]:
     return get_db().all("SELECT id, name, email, entry_no, created_at FROM users WHERE role = 'student' ORDER BY name")
+
+
+# ---------------------------------------------------------------------------- teaching team
+class RoleIn(BaseModel):
+    role: str = Field(pattern="^(instructor|student)$")
+
+
+@router.get("/team")
+def team(viewer: dict = Depends(require_instructor)):
+    """Everyone who can see the instructor side."""
+    rows = get_db().all("SELECT id, name, email, created_at FROM users WHERE role = 'instructor' ORDER BY id")
+    return [{**r, "email": visible_email(viewer, r["email"]), "is_you": r["id"] == viewer["id"],
+             "is_demo": is_demo_account(r)} for r in rows]
+
+
+@router.post("/users/{user_id}/role")
+def set_role(user_id: int, body: RoleIn, viewer: dict = Depends(require_instructor_write)):
+    """Promote a student to instructor, or move an instructor back to being a student.
+
+    Guards, in order: you cannot change your own role (so the last instructor cannot lock themselves out), the
+    shared demo accounts can never be promoted (anyone can sign into those), and the final instructor cannot be
+    demoted, which would leave the class with nobody who can grade.
+    """
+    db = get_db()
+    target = db.one("SELECT id, name, email, role FROM users WHERE id = ?", (user_id,))
+    if not target:
+        raise HTTPException(status_code=404, detail="no such user")
+    if target["id"] == viewer["id"]:
+        raise HTTPException(status_code=400, detail="You cannot change your own role.")
+    if is_demo_account(target):
+        raise HTTPException(status_code=403, detail="Demo accounts are public, so they can never be made instructors.")
+    if target["role"] == body.role:
+        return {"id": target["id"], "name": target["name"], "role": target["role"], "changed": False}
+    if body.role == "student" and db.scalar("SELECT COUNT(*) AS n FROM users WHERE role = 'instructor'") <= 1:
+        raise HTTPException(status_code=400, detail="This is the last instructor: promote someone else first.")
+    db.run("UPDATE users SET role = ? WHERE id = ?", (body.role, user_id))
+    # Signing them out everywhere makes the new role take effect immediately, on every device.
+    db.run("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    log.warning("role change: %s (id=%s) is now a %s, by %s", target["email"], user_id, body.role, viewer["email"])
+    return {"id": target["id"], "name": target["name"], "role": body.role, "changed": True}
 
 
 def _assignments() -> list[dict]:

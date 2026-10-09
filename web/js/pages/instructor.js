@@ -247,10 +247,41 @@ const COLS = [
   ["labs", "Lab tasks", (r) => r.labs_done, "num hide-sm"],
   ["xp", "XP", (r) => r.xp, "num"],
   ["active", "Last active", (r) => r.last_active || "", "hide-sm"],
+  ["", "", () => 0, "nosort"],
 ];
 
+async function setRole(id, role, name) {
+  const asking = role === "instructor"
+    ? `Make ${name} an instructor? They will see every student's work and be able to change grades.`
+    : `Move ${name} back to being a student? They lose access to the instructor side.`;
+  if (!confirm(asking)) return false;
+  try {
+    await api(`/api/instructor/users/${id}/role`, { method: "POST", body: { role } });
+    toast(role === "instructor" ? `${name} is now an instructor` : `${name} is a student again`, "ok");
+    return true;
+  } catch (e) { toast(e.message, "error"); return false; }
+}
+
+function teamPanel(team, reload) {
+  const host = document.createElement("section");
+  host.className = "panel team";
+  host.innerHTML = `<div class="panel-h"><h2>${icon("users")} Teaching team</h2>
+      <span class="hint">${plural(team.length, "instructor")} · can see every student and change grades</span></div>
+    <ul class="team-list">${team.map((t) => `<li><span class="avatar">${esc(t.name.split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase())}</span>
+      <div class="grow"><b>${esc(t.name)}</b><span>${esc(t.email || "")}</span></div>
+      ${t.is_you ? `<span class="chip">You</span>`
+        : `<button class="ghost sm" data-demote="${t.id}" data-name="${esc(t.name)}" type="button" data-write>Make student</button>`}</li>`).join("")}</ul>
+    <p class="hint">To add someone: find them in the student list above and choose <b>Make instructor</b>. They are
+      signed out of their other devices, so the new role takes effect straight away.</p>`;
+  host.querySelectorAll("[data-demote]").forEach((b) => b.addEventListener("click", async () => {
+    if (await setRole(b.dataset.demote, "student", b.dataset.name)) reload();
+  }));
+  window.__applyReadOnly?.(host);
+  return host;
+}
+
 export async function students(view, _p, query) {
-  const rows = await api("/api/instructor/students");
+  const [rows, team] = await Promise.all([api("/api/instructor/students"), api("/api/instructor/team")]);
   const groups = [["all", "All"], ["risk", `Below ${LOW}`], ["none", "Not started"], ["ok", "On track"]];
   const count = (k) => (k === "all" ? rows.length : rows.filter((r) => standing(r)[0] === k).length);
   let show = groups.some(([k]) => k === query?.get("show")) ? query.get("show") : "all";
@@ -262,8 +293,9 @@ export async function students(view, _p, query) {
         <div class="seg" role="group" aria-label="Filter students">${groups.map(([k, label]) =>
           `<button type="button" data-g="${k}" aria-pressed="${k === show}">${label}<span class="n">${count(k)}</span></button>`).join("")}</div>
         <input id="filter" type="search" placeholder="Search name, email or entry number" aria-label="Search students" /></div>
-      <div class="table-wrap"><table><thead><tr>${COLS.map(([k, label, , cls]) =>
-        `<th class="sort ${cls}" data-k="${k}" tabindex="0">${label}</th>`).join("")}</tr></thead><tbody id="st-body"></tbody></table></div>`
+      <div class="table-wrap"><table><thead><tr>${COLS.map(([k, label, , cls]) => cls === "nosort"
+        ? `<th><span class="sr">Actions</span></th>`
+        : `<th class="sort ${cls}" data-k="${k}" tabindex="0">${label}</th>`).join("")}</tr></thead><tbody id="st-body"></tbody></table></div>`
       : emptyState("No students yet", "Students appear here after they create an account with your class join code.", "", "users")}</section>`;
   if (!rows.length) return;
   const paint = () => {
@@ -281,8 +313,14 @@ export async function students(view, _p, query) {
         <td class="hide-sm">${esc(r.email)}</td><td><span class="status-tag ${cls}">${label}</span></td>
         <td class="num">${r.avg_best != null ? gradeBadge(r.avg_best, "") : "–"}</td><td class="num hide-sm">${r.submissions}</td>
         <td class="num hide-sm">${r.labs_done}</td><td class="num">${r.xp}</td>
-        <td class="hide-sm">${r.last_active ? esc(relTime(r.last_active)) : `<span class="muted">Never</span>`}</td></tr>`;
+        <td class="hide-sm">${r.last_active ? esc(relTime(r.last_active)) : `<span class="muted">Never</span>`}</td>
+        <td class="actions">${r.email.includes("@") && !/@(demo\.)?autograder\.local$/i.test(r.email)
+          ? `<button class="ghost sm" data-promote="${r.id}" data-name="${esc(r.name)}" type="button" data-write>Make instructor</button>` : ""}</td></tr>`;
     }).join("") : `<tr><td colspan="${COLS.length}">${emptyState("No students match", "Try another filter or search.", "", "users")}</td></tr>`;
+    $("#st-body").querySelectorAll("[data-promote]").forEach((b) => b.addEventListener("click", async () => {
+      if (await setRole(b.dataset.promote, "instructor", b.dataset.name)) window.__nav(location.pathname, { replace: true });
+    }));
+    window.__applyReadOnly?.(view);
   };
   view.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => {
     show = b.dataset.g;
@@ -296,6 +334,7 @@ export async function students(view, _p, query) {
   });
   $("#filter").addEventListener("input", (e) => { q = e.target.value.trim().toLowerCase(); paint(); });
   paint();
+  view.append(teamPanel(team, () => window.__nav(location.pathname, { replace: true })));
 }
 
 export { subsTable };
