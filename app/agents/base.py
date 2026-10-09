@@ -118,7 +118,7 @@ class SpecialistAgent(ABC):
         )
         user = (f"# EVIDENCE FOR DIMENSION `{self.dimension}`\n{self.evidence(idx, docker)}\n\n"
                 "Call `submit_assessment` now.")
-        return await call_tool(model=config.AGENT_MODEL, system=system, user=user,
+        return await call_tool(model=config.agent_model(self.dimension), system=system, user=user,
                                tool=ASSESSMENT_TOOL, max_tokens=config.AGENT_MAX_TOKENS)
 
     def _to_report(self, data: dict, usage: TokenUsage) -> AgentReport:

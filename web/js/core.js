@@ -190,6 +190,36 @@ export function gradeBadge(score, grade) {
   return `<span class="grade ${gradeClass(score)}" title="${esc(score)} out of 100">${grade ? `<b>${esc(grade)}</b>` : ""}${esc(Math.round(score))}</span>`;
 }
 
+/** The instructor's "what will be checked" text as checklist items (split on ; new lines and sentences). */
+export function checkItems(notes) {
+  return String(notes || "").split(/;|\n|\.\s/).map((x) => x.trim().replace(/\.$/, "")).filter((x) => x.length > 3)
+    .map((c) => c.charAt(0).toUpperCase() + c.slice(1));
+}
+
+/** Area weights as percentage inputs. They are stored as fractions; the server rescales them to add up to 1. */
+export function weightFields(prefix, w = DEFAULT_WEIGHTS) {
+  return `<div class="weights">${Object.entries(DIMENSIONS).map(([k, label]) => `<div><label for="${prefix}-${k}">${label}</label>
+    <div class="pct"><input id="${prefix}-${k}" type="number" min="0" max="100" step="5" inputmode="numeric" value="${Math.round((w[k] ?? 0) * 100)}" /><span aria-hidden="true">%</span></div></div>`).join("")}</div>
+    <p class="hint weight-total" id="${prefix}-total" aria-live="polite"></p>`;
+}
+
+export function readWeights(prefix) {
+  return Object.fromEntries(Object.keys(DIMENSIONS).map((k) => [k, Math.max(0, parseFloat($(`#${prefix}-${k}`).value) || 0) / 100]));
+}
+
+export function bindWeights(prefix) {
+  const show = () => {
+    const total = Object.keys(DIMENSIONS).reduce((s, k) => s + Math.max(0, parseFloat($(`#${prefix}-${k}`).value) || 0), 0);
+    const el = $(`#${prefix}-total`);
+    if (!el) return;
+    el.textContent = total === 100 ? "Total: 100%" : total === 0 ? "Give at least one area a weight."
+      : `Total: ${total}%. That's fine: the marks are scaled so they still add up to 100.`;
+    el.classList.toggle("warn", total !== 100);
+  };
+  Object.keys(DIMENSIONS).forEach((k) => $(`#${prefix}-${k}`)?.addEventListener("input", show));
+  show();
+}
+
 export function emptyState(title, body = "", action = "", ico = "sparkles") {
   return `<div class="empty"><div class="empty-ico">${icon(ico)}</div><h3>${esc(title)}</h3>${body ? `<p>${body}</p>` : ""}${action}</div>`;
 }

@@ -139,6 +139,7 @@ These figures use the real clone, index, lint, evidence and judge logic. LLM lat
 
 - Timeouts on every external call: git, docker, each LLM call, the judge.
 - The Anthropic SDK retries 429 and 5xx responses with exponential backoff (`LLM_MAX_RETRIES`).
+- Free model tiers (Groq, Gemini) go through an OpenAI-compatible client. Groq's free tier allows about 8,000 tokens per minute per model, so the five specialists are spread over two models (`openai/gpt-oss-20b`, `openai/gpt-oss-120b`) with smaller context budgets (3.5k shared + 4.5k per agent characters). A 429 waits exactly as long as the provider's `retry-after` says, until the agent's deadline, without holding a concurrency slot. When Groq rejects a tool call over a small schema slip (`tool_use_failed`), the raw generation it returns is parsed leniently instead of spending another call. Measured: two back-to-back reviews of a 5-service repository took 64-67 s with all six calls answered by the models.
 - Admission control: `MAX_CONCURRENT_JOBS` semaphore with FIFO waiting and a visible queue position.
 - Failed or cancelled jobs cancel their background tasks (clone, docker build) and always delete the workspace. Orphans are purged on startup.
 - Artifacts are written atomically (write to `.tmp`, then `os.replace`), and reports survive process restarts.

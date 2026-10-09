@@ -2,7 +2,7 @@
 
 **Your GitHub repository, marked like a code review.** Five AI reviewers check a full-stack project in parallel (code quality, architecture, security, testing, Docker & DevOps), a judge agent calibrates their scores, and the student gets a score, the exact files to fix and what to learn next, usually in about a minute. Around the grader sits a learning platform with separate views for students and instructors.
 
-**Live:** https://autograder-plus.onrender.com &nbsp;·&nbsp; **How it works:** https://autograder-plus.onrender.com/how-it-works
+**Live:** https://autograder-plus.onrender.com
 
 ![Instructor overview](docs/img/instructor-overview.png)
 
@@ -31,13 +31,12 @@ A demo student account and sample assignments are created on first start (SQLite
 docker compose up --build            # http://localhost:8080
 ```
 
-Without `ANTHROPIC_API_KEY` the reviewers use rule-based scorers through the same pipeline. Add the key to `.env` for LLM reviews.
+The AI reviewers run on a **free** model: create a key at [console.groq.com/keys](https://console.groq.com/keys) and put it in `.env` as `AUTOGRADER_LLM_API_KEY` (a Gemini key from [aistudio.google.com](https://aistudio.google.com/apikey) works too, and `ANTHROPIC_API_KEY` switches to Claude). Without any key the reviewers use rule-based scorers through the same pipeline.
 
 ## Documentation
 
 | | |
 |---|---|
-| [How it works](https://autograder-plus.onrender.com/how-it-works) | Architecture, pipeline, scoring, latency (with live numbers), security, data model |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full design notes and trade-offs |
 | [docs/AutoGrader-Report.pdf](docs/AutoGrader-Report.pdf) | Project report (20 pages, with screenshots) |
 | [docs/AutoGrader.pptx](docs/AutoGrader.pptx) / [PDF](docs/AutoGrader-Slides.pdf) | Slides with speaker notes |
@@ -72,6 +71,6 @@ scripts/      local launcher, latency benchmark, security check, icon generator
 | `AUTOGRADER_INSTRUCTOR_EMAIL`, `_PASSWORD` | The real instructor account |
 | `AUTOGRADER_SIGNUP_CODE` | Class join code students need to sign up |
 | `AUTOGRADER_DEMO_SEED` | 1 = public demo student and sample class, sign-up closed |
-| `ANTHROPIC_API_KEY` | Turns on LLM reviewers |
+| `AUTOGRADER_LLM_API_KEY` | Free AI reviewers: a Groq key (`gsk_...`) or a Gemini key. `ANTHROPIC_API_KEY` uses Claude instead |
 | `AUTOGRADER_MAX_CONCURRENT_JOBS` | Gradings per replica at the same time |
 | `AUTOGRADER_ENABLE_DOCKER` | 1 = build and run student Dockerfiles in the sandbox (use an isolated host) |

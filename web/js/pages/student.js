@@ -1,5 +1,5 @@
 import {
-  $, DIM_HELP, DIM_ICON, DIMENSIONS, TRACKS, api, daysLeft, emptyState, esc, fmtDate, gradeBadge, gradeClass, icon, learnLine, lineChart,
+  $, DIM_HELP, DIM_ICON, DIMENSIONS, TRACKS, api, checkItems, daysLeft, emptyState, esc, fmtDate, gradeBadge, gradeClass, icon, learnLine, lineChart,
   pageHeader, progressBar, radarChart, relTime, scoreRing, state, statusPill, toast,
 } from "../core.js";
 import { bindDockerfileUpload, liveJob, priorityTitles, readRepoFields, repoFields } from "./grader.js";
@@ -51,12 +51,21 @@ export function subsTable(rows, opts) {
 }
 
 // ------------------------------------------------------------------------------------ dashboard
+function upNextChecks(a) {
+  const items = checkItems(a.rubric_notes);
+  if (!items.length) return "";
+  const more = items.length - 3;
+  return `<div class="next-checks"><h4>What will be checked</h4><ul class="checklist">${items.slice(0, 3).map((c) =>
+    `<li>${icon("checkCircle")}<span>${esc(c)}</span></li>`).join("")}</ul>${more > 0 ? `<p class="hint">and ${more} more on the assignment page</p>` : ""}</div>`;
+}
+
 function nextCard(next, improve) {
   if (next) {
     return `<article class="next"><h2>Up next</h2>
       <h3 class="focus-title"><a href="/student/assignment/${next.id}"><span class="hl">${esc(next.title)}</span></a></h3>
       <div class="focus-meta">${dueMeta(next.due_at)}<span>${icon(TRACK_ICON[next.track] || "book")} ${esc(TRACKS[next.track] || next.track)}</span></div>
       ${next.description ? `<p class="focus-desc">${esc(next.description)}</p>` : ""}
+      ${upNextChecks(next)}
       <div class="row-btns"><a class="btn lg" href="/student/assignment/${next.id}">Start this assignment</a></div></article>`;
   }
   if (improve) {
@@ -183,8 +192,7 @@ export async function assignment(view, { id }) {
   // Instructors get the assignment's analytics page instead of a submit form.
   if (state.user?.role === "instructor") { window.__nav(`/instructor/assignment/${encodeURIComponent(id)}`, { replace: true }); return null; }
   const a = await api(`/api/assignments/${encodeURIComponent(id)}`);
-  const checks = (a.rubric_notes || "").split(/;|\n|\.\s/).map((x) => x.trim().replace(/\.$/, "")).filter((x) => x.length > 3)
-    .map((c) => c.charAt(0).toUpperCase() + c.slice(1));
+  const checks = checkItems(a.rubric_notes);
   const subs = a.submissions || [];
   // An instructor-adjusted grade is the grade for this assignment, even if a later attempt scored higher.
   const best = subs.find((s) => s.override && s.status === "done")

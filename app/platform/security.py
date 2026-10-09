@@ -184,6 +184,10 @@ LOGIN_IP_THROTTLE = Throttle(limit=10, window_s=15 * 60)
 LOGIN_ACCOUNT_THROTTLE = Throttle(limit=100, window_s=15 * 60)
 SIGNUP_THROTTLE = Throttle(limit=8, window_s=60 * 60)    # failed join-code attempts per IP...
 SIGNUP_GLOBAL_THROTTLE = Throttle(limit=200, window_s=60 * 60)  # ...and in total, however many IPs are used
+# Free reviews from the landing page (public demo only): a few per visitor and a cap for everyone together,
+# so one person cannot use up the grading capacity or the free model quota.
+TRY_IP_THROTTLE = Throttle(limit=4, window_s=60 * 60)
+TRY_GLOBAL_THROTTLE = Throttle(limit=60, window_s=60 * 60)
 
 
 def client_ip(request: Request) -> str:

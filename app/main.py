@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__, config
-from .agents.llm import llm_enabled
+from .agents.llm import llm_enabled, provider_label
 from .ingest import git_ops
 from .jobs import JobManager
 from .models import GradeRequest, Rubric
@@ -27,7 +27,8 @@ from .platform import labs as platform_labs
 from .platform.db import get_db
 from .platform.db import iso_ago as platform_iso_ago
 from .platform.seed import seed
-from .platform.security import require_instructor_write, session_user
+from .platform.security import (TRY_GLOBAL_THROTTLE, TRY_IP_THROTTLE, client_ip, require_instructor_write,
+                                session_user, start_session)
 from .report import store
 from .tracing import METRICS
 
@@ -266,10 +267,12 @@ def build_request(body: GradeIn) -> GradeRequest:
                         rubric=Rubric(weights=weights, notes=body.rubric_notes.strip()), force=body.force)
 
 
-async def _submit(body: GradeIn, user: dict | None = None, assignment_id: int | None = None) -> JSONResponse:
+async def _submit(body: GradeIn, user: dict | None = None, assignment_id: int | None = None,
+                  check_active: bool = True) -> JSONResponse:
     assert manager is not None
     req = build_request(body)
-    if user and await asyncio.to_thread(platform_api.active_submissions, user["id"]) >= platform_api.MAX_ACTIVE_PER_USER:
+    if user and check_active and \
+            await asyncio.to_thread(platform_api.active_submissions, user["id"]) >= platform_api.MAX_ACTIVE_PER_USER:
         raise HTTPException(status_code=429, detail=f"you already have {platform_api.MAX_ACTIVE_PER_USER} gradings in "
                                                     "progress; wait for one to finish")
     job, deduped = manager.submit(req)
@@ -282,6 +285,34 @@ async def _submit(body: GradeIn, user: dict | None = None, assignment_id: int | 
                   "report": f"/api/jobs/{job.id}/report", "html": f"/api/jobs/{job.id}/report.html",
                   "markdown": f"/api/jobs/{job.id}/report.md"},
     })
+
+
+class TryIn(BaseModel):
+    repo_url: str = Field(max_length=300)
+
+
+@app.post("/api/try", status_code=202)
+async def try_review(body: TryIn, request: Request):
+    """Public demo: review any public repository from the landing page, no account needed.
+    A visitor without a session is signed in as the demo student, so the review shows up in that dashboard.
+    Rate-limited per visitor and in total."""
+    if not config.DEMO_SEED:
+        raise HTTPException(status_code=404, detail="not found")
+    ip = f"ip:{client_ip(request)}"
+    if TRY_IP_THROTTLE.blocked(ip) or TRY_GLOBAL_THROTTLE.blocked("all"):
+        raise HTTPException(status_code=429, detail="You have used the free reviews for this hour. Try again later.")
+    user = await asyncio.to_thread(session_user, request)
+    signed_in_now = None
+    if not user:
+        signed_in_now = user = await asyncio.to_thread(platform_api.demo_student)
+        if not user:
+            raise HTTPException(status_code=503, detail="the demo is not ready yet; try again in a minute")
+    resp = await _submit(GradeIn(repo_url=body.repo_url), user, check_active=False)
+    TRY_IP_THROTTLE.fail(ip)  # counts every accepted review, not only failures
+    TRY_GLOBAL_THROTTLE.fail("all")
+    if signed_in_now:
+        await asyncio.to_thread(start_session, resp, signed_in_now["id"])
+    return resp
 
 
 @app.post("/api/grade", status_code=202)
@@ -519,7 +550,8 @@ async def health():
     except Exception:  # noqa: BLE001 - health must answer even when the DB is down
         db_ms, db_ok = None, False
     return {"status": "ok" if db_ok else "degraded", "version": __version__, "instance": config.INSTANCE_ID,
-            "llm_mode": llm_enabled(), "agent_model": config.AGENT_MODEL, "judge_model": config.JUDGE_MODEL,
+            "llm_mode": llm_enabled(), "llm_provider": provider_label(),
+            "agent_model": config.AGENT_MODEL, "judge_model": config.JUDGE_MODEL,
             "docker_available": config.docker_available(), "max_concurrent_jobs": config.MAX_CONCURRENT_JOBS,
             "auth_required": bool(API_TOKEN), "login_required": config.REQUIRE_LOGIN,
             "database": {"engine": db.engine_name, "ok": db_ok, "ping_ms": db_ms}}

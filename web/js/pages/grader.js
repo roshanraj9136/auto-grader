@@ -1,6 +1,7 @@
 // Practice grading, the friendly live progress view (SSE) and the feedback page.
 import {
-  $, DEFAULT_WEIGHTS, DIM_HELP, DIM_ICON, DIMENSIONS, api, emptyState, esc, gradeClass, icon, learnLine, pageHeader, state, toast,
+  $, DIM_HELP, DIM_ICON, DIMENSIONS, api, bindWeights, emptyState, esc, gradeClass, icon, learnLine, pageHeader, readWeights, state,
+  toast, weightFields,
 } from "../core.js";
 
 // Four student-facing steps; each groups some backend pipeline stages.
@@ -58,23 +59,31 @@ export async function page(view) {
   view.innerHTML = `
   ${teach ? pageHeader("", "Practice grading", "Run any public repository through the grader with your own rubric, for example to try a new assignment before you publish it.")
     : pageHeader("", "Practice", "Check any repository without submitting it for an assignment. Good for a test run before the real thing.")}
-  <section class="panel">
+  <section class="grid-2-1"><div class="panel">
     <form id="grade-form" class="form" novalidate>
       ${repoFields()}
       <details class="more"><summary>${icon("chevronDown")} Customise what matters <span class="muted">(optional)</span></summary>
-        <p class="hint">Give each area a weight. Set one to 0 to skip it.</p>
-        <div class="weights">${Object.entries(DIMENSIONS).map(([k, label]) => `<div><label for="w-${k}">${label}</label>
-          <input id="w-${k}" type="number" min="0" max="1" step="0.05" value="${DEFAULT_WEIGHTS[k]}" /></div>`).join("")}</div>
+        <p class="hint">How much each area counts towards the score. Set one to 0% to skip it.</p>
+        ${weightFields("w")}
         <div class="field"><label for="notes">What should the reviewers look for?</label>
           <textarea id="notes" rows="3" placeholder="e.g. A REST API with PostgreSQL and a React frontend, deployed with docker-compose."></textarea></div>
       </details>
       <p id="err" class="error" role="alert"></p>
       <div class="row-btns"><button class="btn lg" id="go" type="submit">Get feedback</button>
         <button class="ghost" type="button" id="sample">Try a sample project</button></div>
-    </form>
+    </form></div>
+    <aside class="panel what-next"><h2>What happens next</h2>
+      <ol class="mini-steps">
+        <li><b>We read your code</b><span>The repository is copied, indexed and deleted again after the review.</span></li>
+        <li><b>Five reviewers check it</b><span>Code quality, architecture, security, testing and Docker, at the same time.</span></li>
+        <li><b>You get a score and fixes</b><span>A mark out of 100, the problems to fix first, with the file names, and what to learn next.</span></li>
+      </ol>
+      <p class="hint">${icon("clock")} Takes about a minute. Practice runs don't count towards any assignment.</p>
+    </aside>
   </section>
   <div id="live-host"></div>`;
   bindDockerfileUpload();
+  bindWeights("w");
   $("#sample").addEventListener("click", () => { $("#repo").value = "https://github.com/dockersamples/example-voting-app"; $("#repo").focus(); });
   let stop = null;
   $("#grade-form").addEventListener("submit", async (e) => {
@@ -82,7 +91,7 @@ export async function page(view) {
     $("#err").textContent = "";
     try {
       const body = readRepoFields();
-      body.weights = Object.fromEntries(Object.keys(DIMENSIONS).map((k) => [k, parseFloat($(`#w-${k}`).value) || 0]));
+      body.weights = readWeights("w");
       body.rubric_notes = $("#notes").value;
       $("#go").disabled = true;
       const res = await api("/api/grade", { method: "POST", body });
