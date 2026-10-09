@@ -102,8 +102,9 @@ class SpecialistAgent(ABC):
             rep.mode = "heuristic"
         else:
             try:
-                data, usage = await asyncio.wait_for(self._ask_llm(idx, shared, docker), timeout=config.AGENT_TIMEOUT_S)
+                data, usage, model = await asyncio.wait_for(self._ask_llm(idx, shared, docker), timeout=config.AGENT_TIMEOUT_S)
                 rep = self._to_report(data, usage)
+                rep.model = model
             except Exception as exc:  # noqa: BLE001 - graceful degradation keeps tail latency bounded
                 rep = self.heuristic(idx, docker)
                 rep.mode = "heuristic-fallback"
@@ -111,14 +112,14 @@ class SpecialistAgent(ABC):
         rep.latency_ms = int((time.perf_counter() - t0) * 1000)
         return rep
 
-    async def _ask_llm(self, idx: RepoIndex, shared: str, docker: DockerResult | None) -> tuple[dict, TokenUsage]:
+    async def _ask_llm(self, idx: RepoIndex, shared: str, docker: DockerResult | None) -> tuple[dict, TokenUsage, str]:
         system = cached_system(
             COMMON_PREAMBLE + "\n\n# SHARED REPOSITORY CONTEXT\n" + shared,
             f"# YOUR ROLE: {self.name} (dimension: {self.dimension})\n{self.role_prompt}",
         )
         user = (f"# EVIDENCE FOR DIMENSION `{self.dimension}`\n{self.evidence(idx, docker)}\n\n"
                 "Call `submit_assessment` now.")
-        return await call_tool(model=config.agent_model(self.dimension), system=system, user=user,
+        return await call_tool(role="agent", dimension=self.dimension, system=system, user=user,
                                tool=ASSESSMENT_TOOL, max_tokens=config.AGENT_MAX_TOKENS)
 
     def _to_report(self, data: dict, usage: TokenUsage) -> AgentReport:

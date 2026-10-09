@@ -1,28 +1,41 @@
 import { $, api, esc, homePath, icon, refreshMe, state, toast } from "../core.js";
 
-// Landing page, modelled on how code-review and grading products present themselves: one clear promise, one
-// action (paste a link), real screenshots, three steps, then what each kind of user gets.
+// Landing page: one promise, one action (paste a link), then proof. The product pictures are built from real
+// markup rather than screenshots, so they stay sharp at any size and follow the light/dark theme.
 const SAMPLE_REPO = "https://github.com/dockersamples/example-voting-app";
 const GITHUB = "https://github.com/roshanraj9136";
 
 const STEPS = [
-  ["git", "Paste your GitHub link", "Any public repository: a website, an API, a full-stack app."],
-  ["zap", "Watch the review happen", "Five AI reviewers check your code, design, security, tests and Docker setup at the same time."],
-  ["checkCircle", "Fix it and score higher", "You get a score, the exact files to fix and how to fix them. Submit again and watch it go up."],
+  ["Step 1", "Paste a GitHub link", "Any public repository: a website, an API, a full-stack app. No setup, no config file."],
+  ["Step 2", "Five reviewers read it", "They work in parallel on code, architecture, security, tests and your Docker setup."],
+  ["Step 3", "Fix what matters first", "A score, the exact files to change, and the practice that closes the gap. Submit again as often as you like."],
 ];
 
-const AREAS = [["code", "Code quality", "a-code"], ["layers", "Architecture", "a-arch"], ["shield", "Security", "a-sec"],
-  ["testCheck", "Testing", "a-test"], ["box", "Docker & DevOps", "a-ops"]];
+const AREAS = [
+  ["code", "Code quality", "Structure, naming, duplication", "a-code"],
+  ["layers", "Architecture", "Layers, coupling, data flow", "a-arch"],
+  ["shield", "Security", "Secrets, injection, auth", "a-sec"],
+  ["testCheck", "Testing", "Coverage, CI, what is untested", "a-test"],
+  ["box", "Docker & DevOps", "Images, compose, delivery", "a-ops"],
+];
+
+// A real review, kept as markup so it stays sharp at any size and follows the theme.
+const DEMO_AREAS = [["Code quality", 6.5, "a-code"], ["Architecture", 6.5, "a-arch"], ["Security", 4.0, "a-sec"],
+  ["Testing", 1.0, "a-test"], ["Docker & DevOps", 7.5, "a-ops"]];
+const DEMO_FIXES = [
+  ["crit", "Hard-coded database credentials", "Move them to environment variables or a secret store.", "vote/app.py"],
+  ["high", "No automated tests in CI", "The pipeline builds images but never runs a test suite.", ".github/workflows/"],
+];
 
 function tryForm(id) {
   return `<form class="try" id="${id}" novalidate>
     <label class="sr" for="${id}-url">GitHub repository link</label>
     <div class="try-box">${icon("git")}
       <input id="${id}-url" type="url" inputmode="url" autocomplete="url" spellcheck="false"
-        placeholder="https://github.com/your-name/your-project" />
-      <button class="btn lg" type="submit">Review my code</button>
+        placeholder="github.com/your-name/your-project" />
+      <button class="btn" type="submit">Review my code</button>
     </div>
-    <p class="try-note"><span>Free. No sign-up needed.</span> <button type="button" class="linklike" data-sample>Try it with a sample project</button></p>
+    <p class="try-note">Free, no account needed. <button type="button" class="linklike" data-sample>Use a sample project</button></p>
     <p class="error" role="alert"></p>
   </form>`;
 }
@@ -37,9 +50,9 @@ function bindTry(view, id) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     err.textContent = "";
-    const url = input.value.trim();
+    const url = input.value.trim().replace(/^(?!https?:\/\/)(?=github\.com\/)/i, "https://");
     if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/.test(url)) {
-      err.textContent = "Paste a public GitHub link, like https://github.com/your-name/your-project";
+      err.textContent = "Paste a public GitHub link, like github.com/your-name/your-project";
       input.focus();
       return;
     }
@@ -58,92 +71,128 @@ function bindTry(view, id) {
   });
 }
 
-function shot(name, alt) {
-  return `<figure class="shot"><div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i></div>
-    <img src="/img/${name}.webp" alt="${esc(alt)}" width="1600" height="1000" loading="lazy" decoding="async" /></figure>`;
+function reportCard() {
+  return `<div class="demo" aria-label="Example review">
+    <div class="demo-h">${icon("git")}<code>dockersamples/example-voting-app</code>
+      <span class="done">${icon("checkCircle")} Reviewed in 18s</span></div>
+    <div class="demo-body">
+      <div class="demo-main">
+        <div class="demo-top"><span class="demo-score">52</span><span class="demo-of">out of 100</span><span class="demo-grade">Grade C-</span></div>
+        <p class="demo-sum">Solid microservice split and a working Docker Compose setup. It is held back by a complete lack of
+          automated tests and by credentials committed to the repository.</p>
+        <div class="demo-fixes"><h4>Fix these first</h4>
+          ${DEMO_FIXES.map(([sev, title, fix, file]) => `<div class="demo-fix"><span class="sev sev-${sev}">${sev === "crit" ? "critical" : "high"}</span>
+            <b>${esc(title)}</b><span>${esc(fix)} <code>${esc(file)}</code></span></div>`).join("")}
+        </div>
+      </div>
+      <div class="demo-side"><h4>Marks by area</h4>
+        ${DEMO_AREAS.map(([label, v, cls]) => `<div class="demo-area ${cls}">
+          <div class="row"><b>${label}</b><em>${v.toFixed(1)}</em></div>
+          <div class="t"><span style="width:${v * 10}%"></span></div></div>`).join("")}
+      </div>
+    </div>
+  </div>`;
+}
+
+function miniGradebook() {
+  const rows = [["Diya Patel", ["69", "b"], ["74", "a"], ["72", "a"]], ["Ananya Rao", ["58", "c"], ["71", "b"], ["64", "b"]],
+    ["Aarav Sharma", ["54", "c"], ["60", "c"], ["57", "c"]], ["Kabir Singh", ["49", "d"], null, ["49", "d"]],
+    ["Rohan Gupta", null, null, null]];
+  return `<div class="mini" aria-label="Example class view">
+    <div class="mini-h">${icon("users")} Class overview · 8 students</div>
+    <div class="mini-alert">${icon("alert")}<div><b>2 students submitted the same repository</b>
+      <span>Lab 1 · group work, or copying?</span></div></div>
+    <table><thead><tr><th>Student</th><th class="n">Lab 1</th><th class="n">Lab 2</th><th class="n">Average</th></tr></thead>
+      <tbody>${rows.map(([name, ...cells]) => `<tr><td>${esc(name)}</td>${cells.map((c) =>
+        `<td class="n"><span class="g ${c ? c[1] : "none"}">${c ? c[0] : "–"}</span></td>`).join("")}</tr>`).join("")}</tbody></table>
+  </div>`;
+}
+
+function miniPlan() {
+  const rows = [
+    ["testCheck", "a-test", "Write your first unit test", "Testing lab · task 1", "Testing 1.0"],
+    ["shield", "a-sec", "Keep secrets out of your code", "Security lab · task 2", "Security 4.0"],
+    ["database", "a-code", "Make a query use an index", "Database lab · task 4", "Next up"],
+  ];
+  return `<div class="mini mini-plan" aria-label="Example practice plan">
+    ${rows.map(([ico, cls, title, sub, why]) => `<div class="plan-row ${cls}">${icon(ico)}
+      <div><b>${esc(title)}</b><span>${esc(sub)}</span></div><span class="why">${esc(why)}</span></div>`).join("")}
+  </div>`;
 }
 
 export async function home(view) {
   const canTry = state.demo;
+  const action = (id) => canTry ? tryForm(id)
+    : `<div class="cta"><a class="btn" href="/signup">Create a free account</a><a class="ghost" href="/login">Sign in</a></div>`;
   view.innerHTML = `
   <section class="hero"><div class="l-wrap">
-    <p class="hero-tag">${icon("sparkles")} AI code review for student projects</p>
-    <h1>Get your code reviewed in&nbsp;<span class="hl">a minute</span>.</h1>
-    <p class="hero-lead">Paste a GitHub link. Five AI reviewers check your project and tell you your score, what is wrong, and exactly how to fix it.</p>
-    ${canTry ? tryForm("try-top") : `<div class="cta"><a class="btn lg" href="/signup">Create a free account</a><a class="ghost lg" href="/login">Sign in</a></div>`}
-    <div class="hero-shot">${shot("feedback", "A review: score 58 out of 100, marks for each area and the top things to fix")}</div>
+    <p class="hero-tag">${icon("sparkles")} Free AI code review for students</p>
+    <h1>Find out what to fix in your project, in a minute.</h1>
+    <p class="hero-lead">Paste a GitHub link. Five reviewers read your code and tell you your score, the exact files
+      that need work, and what to practise next.</p>
+    ${action("try-top")}
+    ${reportCard()}
   </div></section>
 
   <section class="facts"><div class="l-wrap facts-row">
-    <div><b>5</b><span>AI reviewers on every project</span></div>
-    <div><b>~1 min</b><span>from link to full review</span></div>
-    <div><b>100%</b><span>free for students</span></div>
-    <div><b>5</b><span>hands-on labs to practise</span></div>
+    <div><b>5</b><span>reviewers per project</span></div>
+    <div><b>~1 min</b><span>link to full review</span></div>
+    <div><b>Free</b><span>no card, no limits per class</span></div>
+    <div><b>17</b><span>hands-on practice tasks</span></div>
   </div></section>
 
-  <section class="l-sec"><div class="l-wrap">
-    <h2 class="l-h center">Three steps. That's it.</h2>
-    <ol class="steps3">${STEPS.map(([ico, t, d], i) => `<li><span class="step-n">${i + 1}</span><span class="step-ico">${icon(ico)}</span>
-      <h3>${t}</h3><p>${d}</p></li>`).join("")}</ol>
-    <div class="areas" aria-label="What gets checked">${AREAS.map(([ico, t, cls]) => `<span class="area ${cls}">${icon(ico)}${t}</span>`).join("")}</div>
+  <section class="l-sec plain"><div class="l-wrap">
+    <div class="l-head center"><h2 class="l-h">How it works</h2>
+      <p class="l-sub">No install, no config file, nothing to set up.</p></div>
+    <ol class="steps3">${STEPS.map(([n, t, d]) => `<li><span class="n">${n}</span><h3>${t}</h3><p>${d}</p></li>`).join("")}</ol>
+    <div class="areas">${AREAS.map(([ico, t, d, cls]) => `<div class="area ${cls}">${icon(ico)}<b>${t}</b><span>${d}</span></div>`).join("")}</div>
   </div></section>
 
-  <section class="l-sec feature"><div class="l-wrap split">
-    <div class="split-text">
-      <p class="eyebrow a-code">For students</p>
-      <h2 class="l-h">Know exactly what to fix next</h2>
-      <ul class="ticks">
-        <li>${icon("check")}A score out of 100 and a mark for each part of your project</li>
-        <li>${icon("check")}The top problems first, with the file name and the fix</li>
-        <li>${icon("check")}Topics to learn next, picked from your own code</li>
-        <li>${icon("check")}Submit again as often as you like: your best score counts</li>
-      </ul>
-    </div>
-    ${shot("student-dashboard", "Student dashboard with the next assignment, the last result and progress")}
-  </div></section>
-
-  <section class="l-sec feature alt"><div class="l-wrap split rev">
-    <div class="split-text">
-      <p class="eyebrow a-sec">For teachers</p>
+  <section class="l-sec"><div class="l-wrap split">
+    <div class="split-text a-sec">
+      <span class="eyebrow">For teachers</span>
       <h2 class="l-h">See the whole class at a glance</h2>
-      <ul class="ticks red">
-        <li>${icon("check")}Who needs help, who hasn't started, and who may have copied</li>
-        <li>${icon("check")}A gradebook and statistics for every assignment</li>
-        <li>${icon("check")}Change a grade with a reason, or grade a submission again</li>
-        <li>${icon("check")}Set your own rubric and deadline; export grades to Excel</li>
+      <p class="l-sub">Who needs help, who hasn't started, and who handed in the same repository as someone else.</p>
+      <ul class="ticks">
+        <li>${icon("check")}A gradebook with every attempt, exportable to Excel</li>
+        <li>${icon("check")}Statistics per assignment, and the class's weakest area</li>
+        <li>${icon("check")}Change a grade with a reason, or run the review again</li>
+        <li>${icon("check")}Your own rubric: decide how much each area counts</li>
       </ul>
     </div>
-    ${shot("instructor-overview", "Teacher overview with the students who need attention and the grade distribution")}
+    ${miniGradebook()}
   </div></section>
 
-  <section class="l-sec feature"><div class="l-wrap split">
-    <div class="split-text">
-      <p class="eyebrow a-test">Practice</p>
-      <h2 class="l-h">Practise every layer of a full-stack app</h2>
-      <ul class="ticks green">
-        <li>${icon("check")}Frontend: HTML, CSS and JavaScript with a live preview</li>
-        <li>${icon("check")}Databases: write SQL and see how indexes speed it up</li>
-        <li>${icon("check")}Networks, load balancers and Docker, hands-on</li>
+  <section class="l-sec"><div class="l-wrap split rev">
+    <div class="split-text a-test">
+      <span class="eyebrow">Practice</span>
+      <h2 class="l-h">Practice chosen from your own code</h2>
+      <p class="l-sub">The review knows your weakest area, so the labs start with the tasks that raise your score the most.</p>
+      <ul class="ticks">
+        <li>${icon("check")}Write SQL against a real schema and read the query plan</li>
+        <li>${icon("check")}Send traffic through a load balancer and watch it spread</li>
+        <li>${icon("check")}Fix a Dockerfile against the same linter that grades you</li>
         <li>${icon("check")}Everything runs in your browser. Nothing to install.</li>
       </ul>
-      <div class="row-btns"><a class="ghost" href="/labs">Open the labs</a></div>
+      <div class="row-btns top"><a class="ghost" href="/labs">Open the labs</a></div>
     </div>
-    ${shot("lab-sql", "SQL lab with a query editor, the tables and tasks")}
+    ${miniPlan()}
   </div></section>
 
-  <section class="l-end"><div class="l-wrap end-box">
-    <h2>Find out your score in a minute.</h2>
-    ${canTry ? tryForm("try-bottom") : `<div class="cta"><a class="btn lg" href="/signup">Create a free account</a></div>`}
+  <section class="l-end"><div class="l-wrap narrow">
+    <h2>See your score in a minute.</h2>
+    <p>Free, and nothing to install.</p>
+    ${action("try-bottom")}
   </div></section>
 
-  <footer class="site-foot"><div class="l-wrap foot-grid">
+  <footer class="site-foot"><div class="l-wrap"><div class="foot-grid">
     <div class="foot-brand"><a href="/" class="brand"><span class="logo">${icon("check")}</span><span>AutoGrader<i>+</i></span></a>
-      <p>AI code review and grading for full-stack student projects.</p>
-      <p class="made">Built by <a href="${GITHUB}" target="_blank" rel="noopener">Roshan Raj</a></p></div>
+      <p>AI code review and grading for full-stack student projects.</p></div>
     <nav aria-label="Product"><b>Product</b>${canTry ? `<a href="#try-top">Review my code</a>` : ""}<a href="/labs">Labs</a><a href="/login">Sign in</a></nav>
     <nav aria-label="Project"><b>Project</b><a href="https://github.com/roshanraj9136/auto-grader" target="_blank" rel="noopener">Source code</a>
-      <a href="/docs" target="_blank" rel="noopener">API</a></nav>
-  </div><div class="l-wrap foot-base"><span>© ${new Date().getFullYear()} AutoGrader+</span></div></footer>`;
+      <a href="/docs" target="_blank" rel="noopener">API reference</a></nav>
+  </div><div class="foot-base"><span>© ${new Date().getFullYear()} AutoGrader+</span>
+    <span>Built by <b><a href="${GITHUB}" target="_blank" rel="noopener">Roshan Raj</a></b></span></div></div></footer>`;
   bindTry(view, "try-top");
   bindTry(view, "try-bottom");
   view.querySelector('a[href="#try-top"]')?.addEventListener("click", (e) => {

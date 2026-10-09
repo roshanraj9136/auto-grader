@@ -21,12 +21,37 @@ from ..sandbox.dockerfile_lint import lint as lint_dockerfile, parse as parse_do
 from .db import get_db, now_iso
 from .security import optional_user, require_user
 
+DIMENSION_LABELS = {"code_quality": "Code quality", "architecture": "Architecture", "security": "Security",
+                    "testing": "Testing", "devops": "Docker & DevOps"}
+
 router = APIRouter()
 STARTED_AT = time.time()
 _request_no = 0
 _counter_lock = threading.Lock()
 
 TASK_XP = 20
+
+# Which grading dimensions each lab task strengthens, so a student's weakest marks can pick their next task.
+# A task may serve two dimensions (fixing a Dockerfile is both delivery and security).
+TASK_DIMENSIONS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("frontend", "heading"): ("code_quality",),
+    ("frontend", "counter"): ("code_quality",),
+    ("frontend", "flex"): ("code_quality",),
+    ("frontend", "a11y"): ("code_quality",),
+    ("database", "select"): ("architecture",),
+    ("database", "join"): ("architecture",),
+    ("database", "aggregate"): ("architecture",),
+    ("database", "index"): ("architecture", "code_quality"),
+    ("loadbalancer", "burst"): ("architecture", "devops"),
+    ("loadbalancer", "replicas"): ("architecture", "devops"),
+    ("loadbalancer", "sticky"): ("architecture",),
+    ("network", "rtt"): ("devops",),
+    ("network", "headers"): ("devops", "security"),
+    ("network", "timing"): ("devops",),
+    ("docker", "clean"): ("devops", "security"),
+    ("docker", "multistage"): ("devops",),
+    ("docker", "hardened"): ("security", "devops"),
+}
 
 LABS: dict[str, dict] = {
     "frontend": {
@@ -115,10 +140,47 @@ def mark_done(user_id: int, lab: str, task: str) -> bool:
     return n > 0
 
 
+def recommended_tasks(skills: dict[str, float | None], progress: dict[str, list[str]], limit: int = 3) -> list[dict]:
+    """The next practice tasks for one student: unfinished tasks, weakest marked dimension first.
+
+    `skills` are the student's average marks per dimension (0-10) from their graded submissions. A dimension with
+    no mark yet is treated as "not measured" and sorts after the measured weak ones, so a new student still gets a
+    sensible place to start. Tasks that serve a weak dimension come first; ties keep the catalogue's order.
+    """
+    marked = {d: v for d, v in (skills or {}).items() if isinstance(v, (int, float))}
+    done = {(lab, task) for lab, tasks in (progress or {}).items() for task in tasks}
+    out: list[dict] = []
+    for lab in lab_catalog():
+        for task in lab["tasks"]:
+            key = (lab["id"], task["id"])
+            if key in done:
+                continue
+            dims = TASK_DIMENSIONS.get(key, ())
+            scored = [(marked[d], d) for d in dims if d in marked]
+            if scored:
+                score, dim = min(scored)
+                reason, rank = f"{DIMENSION_LABELS.get(dim, dim)} {score:.1f}/10", score
+            else:
+                dim, reason, rank = (dims[0] if dims else ""), "Next up", 11.0
+            out.append({"lab": lab["id"], "lab_title": lab["title"], "icon": lab["icon"], "task": task["id"],
+                        "title": task["title"], "dimension": dim, "reason": reason, "xp": task["xp"], "_rank": rank})
+    out.sort(key=lambda t: t["_rank"])
+    picked: list[dict] = []
+    for t in out:  # at most one task per lab, so the plan spreads over topics instead of one page
+        if any(p["lab"] == t["lab"] for p in picked):
+            continue
+        picked.append({k: v for k, v in t.items() if k != "_rank"})
+        if len(picked) == limit:
+            break
+    return picked
+
+
 @router.get("/api/labs")
 def list_labs(user: dict | None = Depends(optional_user)):
     progress = user_progress(user["id"]) if user else {}
-    return {"labs": lab_catalog(), "progress": progress, "total_tasks": total_tasks(),
+    from .api import skill_averages  # local: api imports this module, so importing it at the top would cycle
+    recommended = recommended_tasks(skill_averages(user["id"]), progress) if user else []
+    return {"labs": lab_catalog(), "progress": progress, "total_tasks": total_tasks(), "recommended": recommended,
             "completed": sum(len(v) for v in progress.values()), "xp_per_task": TASK_XP}
 
 

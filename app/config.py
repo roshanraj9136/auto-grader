@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 import re
 import shutil
 import socket
@@ -16,37 +17,99 @@ load_dotenv()
 
 # ---- LLM -------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
-# Any OpenAI-compatible chat API works too, including free tiers: Groq (free key at console.groq.com/keys),
-# Google Gemini (aistudio.google.com/apikey) or OpenRouter (https://openrouter.ai/api/v1). A Groq key ("gsk_...")
-# selects Groq's endpoint by itself; other keys default to Gemini's. Anthropic is used when ANTHROPIC_API_KEY is
-# set, unless the provider is forced.
-LLM_API_KEY = (os.getenv("AUTOGRADER_LLM_API_KEY", "") or os.getenv("GROQ_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")).strip()
-_DEFAULT_BASE_URL = ("https://api.groq.com/openai/v1" if LLM_API_KEY.startswith("gsk_")
-                     else "https://generativelanguage.googleapis.com/v1beta/openai")
-LLM_BASE_URL = os.getenv("AUTOGRADER_LLM_BASE_URL", _DEFAULT_BASE_URL).strip().rstrip("/")
+# Free model APIs (OpenAI-compatible), used as a chain: the first provider answers while it has quota; when it is
+# rate-limited or out of its daily quota, the call moves to the next one, so a review keeps running on free tiers.
+#   GEMINI_API_KEY  Google Gemini free tier (aistudio.google.com/apikey): large quotas, used first.
+#   GROQ_API_KEY    Groq free tier (console.groq.com/keys): fast, ~8k tokens per minute per model; the backup.
+#   AUTOGRADER_LLM_API_KEY  either kind of key (recognised by its prefix), or any other OpenAI-compatible API
+#                   together with AUTOGRADER_LLM_BASE_URL (e.g. OpenRouter https://openrouter.ai/api/v1).
+# Order: AUTOGRADER_LLM_ORDER (default "gemini,groq,custom"). Anthropic (Claude) is used instead of the chain when
+# ANTHROPIC_API_KEY is set, unless AUTOGRADER_LLM_PROVIDER=openai.
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+
+@dataclass(frozen=True)
+class LLMProvider:
+    name: str
+    base_url: str
+    api_key: str
+    agent_models: tuple[str, ...]  # the five specialists are spread over these, round-robin
+    judge_model: str
+    max_prompt_chars: int = 0      # 0 = no limit; prompts are shortened (middle cut) to fit small free tiers
+
+
+# On Gemini's free tier, Flash-Lite answers a reviewer call in about 2 s and Flash in about 4 s (reasoning effort
+# "low"). Groq's free tier allows ~8k tokens per minute per model, so its reviewers are spread over two models and
+# prompts are capped (Qwen on Groq was also tried: it produced invalid tool calls too often).
+_PRESETS = {
+    "gemini": dict(base_url=GEMINI_BASE_URL, agent_models=("gemini-3.1-flash-lite",), judge_model="gemini-3.5-flash"),
+    "groq": dict(base_url=GROQ_BASE_URL, agent_models=("openai/gpt-oss-20b", "openai/gpt-oss-120b"),
+                 judge_model="openai/gpt-oss-120b", max_prompt_chars=12_000),
+}
+
+
+def _env_list(name: str) -> tuple[str, ...]:
+    return tuple(m.strip() for m in os.getenv(name, "").split(",") if m.strip())
+
+
+def _build_chain() -> list[LLMProvider]:
+    keys: dict[str, str] = {}
+    if os.getenv("GEMINI_API_KEY", "").strip():
+        keys["gemini"] = os.getenv("GEMINI_API_KEY", "").strip()
+    if os.getenv("GROQ_API_KEY", "").strip():
+        keys["groq"] = os.getenv("GROQ_API_KEY", "").strip()
+    generic = os.getenv("AUTOGRADER_LLM_API_KEY", "").strip()
+    base = os.getenv("AUTOGRADER_LLM_BASE_URL", "").strip().rstrip("/")
+    if generic:
+        kind = "custom" if base else "groq" if generic.startswith("gsk_") else "gemini"
+        keys.setdefault(kind, generic)
+    order = [k.strip() for k in os.getenv("AUTOGRADER_LLM_ORDER", "gemini,groq,custom").split(",") if k.strip()]
+    order += [k for k in ("gemini", "groq", "custom") if k not in order]
+    chain: list[LLMProvider] = []
+    for kind in order:
+        if kind not in keys:
+            continue
+        if kind == "custom":
+            host = base.split("//")[-1].split("/")[0]
+            chain.append(LLMProvider(name=host, base_url=base, api_key=keys[kind],
+                                     agent_models=_env_list("AUTOGRADER_AGENT_MODEL") or ("gpt-4o-mini",),
+                                     judge_model=os.getenv("AUTOGRADER_JUDGE_MODEL", "").strip() or "gpt-4o-mini"))
+        else:
+            chain.append(LLMProvider(name=kind, api_key=keys[kind], **_PRESETS[kind]))
+    # AUTOGRADER_AGENT_MODEL / AUTOGRADER_JUDGE_MODEL override the first provider's models (empty = its defaults).
+    if chain and chain[0].name in _PRESETS:
+        first = chain[0]
+        chain[0] = LLMProvider(name=first.name, base_url=first.base_url, api_key=first.api_key,
+                               agent_models=_env_list("AUTOGRADER_AGENT_MODEL") or first.agent_models,
+                               judge_model=os.getenv("AUTOGRADER_JUDGE_MODEL", "").strip() or first.judge_model,
+                               max_prompt_chars=first.max_prompt_chars)
+    return chain
+
+
+LLM_CHAIN = _build_chain()
 LLM_PROVIDER = os.getenv("AUTOGRADER_LLM_PROVIDER", "").strip().lower()  # "", "anthropic" or "openai"
 if not LLM_PROVIDER:
-    LLM_PROVIDER = "anthropic" if ANTHROPIC_API_KEY else ("openai" if LLM_API_KEY else "")
-# Model tiering: specialists and judge can use different models (latency vs. depth trade-off). On Gemini's free
-# tier, Flash-Lite answers a reviewer call in about 2 s and Flash in about 4 s (measured with reasoning effort "low").
-# AUTOGRADER_AGENT_MODEL may list several models (comma-separated): the five specialists are spread over them.
-# Groq's free tier allows about 8k tokens per minute per model, so its default spreads them over two models.
-# (Qwen on Groq was also tried: it produced invalid tool calls too often.)
+    LLM_PROVIDER = "anthropic" if ANTHROPIC_API_KEY else ("openai" if LLM_CHAIN else "")
 _ANTHROPIC = LLM_PROVIDER == "anthropic"
-_GROQ = not _ANTHROPIC and "api.groq.com" in LLM_BASE_URL
-# An empty setting (e.g. from docker compose's ${VAR:-}) means "use the provider's default".
-AGENT_MODEL = os.getenv("AUTOGRADER_AGENT_MODEL", "").strip() or ("claude-sonnet-5-5" if _ANTHROPIC else (
-    "openai/gpt-oss-20b,openai/gpt-oss-120b" if _GROQ else "gemini-3.1-flash-lite"))
-AGENT_MODELS = [m.strip() for m in AGENT_MODEL.split(",") if m.strip()]
-JUDGE_MODEL = os.getenv("AUTOGRADER_JUDGE_MODEL", "").strip() or ("claude-sonnet-5-5" if _ANTHROPIC else (
-    "openai/gpt-oss-120b" if _GROQ else "gemini-3.5-flash"))
+# Only Groq on its own: build smaller prompts up front instead of shortening them per call.
+_SMALL_CONTEXT = not _ANTHROPIC and bool(LLM_CHAIN) and LLM_CHAIN[0].max_prompt_chars > 0
+# Labels for health checks and reports.
+if _ANTHROPIC:
+    AGENT_MODEL = os.getenv("AUTOGRADER_AGENT_MODEL", "").strip() or "claude-sonnet-5-5"
+    JUDGE_MODEL = os.getenv("AUTOGRADER_JUDGE_MODEL", "").strip() or "claude-sonnet-5-5"
+elif LLM_CHAIN:
+    AGENT_MODEL = " then ".join(f"{p.name}: {', '.join(p.agent_models)}" for p in LLM_CHAIN)
+    JUDGE_MODEL = " then ".join(f"{p.name}: {p.judge_model}" for p in LLM_CHAIN)
+else:
+    AGENT_MODEL = JUDGE_MODEL = "heuristic"
 # OpenAI-compatible APIs: optional reasoning effort for "thinking" models (e.g. "low"); empty = provider default.
 LLM_REASONING_EFFORT = os.getenv("AUTOGRADER_LLM_REASONING_EFFORT", "low").strip()
 AGENT_MAX_TOKENS = int(os.getenv("AUTOGRADER_AGENT_MAX_TOKENS", "1500"))  # output tokens dominate LLM latency
 JUDGE_MAX_TOKENS = int(os.getenv("AUTOGRADER_JUDGE_MAX_TOKENS", "1600"))
 EFFORT = os.getenv("AUTOGRADER_EFFORT", "").strip()  # optional: low|medium|high (sent only if set)
 # Global cap on in-flight LLM calls. Free tiers allow only a few requests per minute, so stay gentle there.
-LLM_CONCURRENCY = int(os.getenv("AUTOGRADER_LLM_CONCURRENCY", "").strip() or ("8" if LLM_PROVIDER == "anthropic" else "3"))
+LLM_CONCURRENCY = int(os.getenv("AUTOGRADER_LLM_CONCURRENCY", "").strip() or ("8" if _ANTHROPIC else "4"))
 LLM_MAX_RETRIES = int(os.getenv("AUTOGRADER_LLM_MAX_RETRIES", "2"))
 AGENT_TIMEOUT_S = float(os.getenv("AUTOGRADER_AGENT_TIMEOUT", "120"))  # hard deadline per specialist
 JUDGE_TIMEOUT_S = float(os.getenv("AUTOGRADER_JUDGE_TIMEOUT", "150"))
@@ -90,10 +153,10 @@ INSTRUCTOR_EMAIL = os.getenv("AUTOGRADER_INSTRUCTOR_EMAIL", "").strip().lower()
 INSTRUCTOR_PASSWORD = os.getenv("AUTOGRADER_INSTRUCTOR_PASSWORD", "")
 
 # ---- Context budgets (characters, ~4 chars/token) ---------------------------
-# Smaller on Groq's free tier, where one minute allows only ~8k tokens per model.
-SHARED_CONTEXT_CHARS = int(os.getenv("AUTOGRADER_SHARED_CONTEXT_CHARS", "3500" if _GROQ else "18000"))  # same for all specialists
-AGENT_SLICE_CHARS = int(os.getenv("AUTOGRADER_AGENT_SLICE_CHARS", "4500" if _GROQ else "32000"))      # agent-specific evidence
-PER_FILE_CHARS = int(os.getenv("AUTOGRADER_PER_FILE_CHARS", "1800" if _GROQ else "6000"))
+# Smaller when Groq's free tier comes first, where one minute allows only ~8k tokens per model.
+SHARED_CONTEXT_CHARS = int(os.getenv("AUTOGRADER_SHARED_CONTEXT_CHARS", "3500" if _SMALL_CONTEXT else "18000"))  # same for all specialists
+AGENT_SLICE_CHARS = int(os.getenv("AUTOGRADER_AGENT_SLICE_CHARS", "4500" if _SMALL_CONTEXT else "32000"))      # agent-specific evidence
+PER_FILE_CHARS = int(os.getenv("AUTOGRADER_PER_FILE_CHARS", "1800" if _SMALL_CONTEXT else "6000"))
 MAX_INDEXED_FILES = 5_000
 MAX_READ_BYTES = 200_000        # files bigger than this are listed but not read
 
@@ -122,8 +185,7 @@ def docker_available() -> bool:
         return False
 
 
-def agent_model(dimension: str) -> str:
-    """The model a specialist uses: AGENT_MODELS are assigned round-robin in rubric order."""
+def dimension_index(dimension: str | None) -> int:
+    """Position in rubric order, used to spread specialists over several models."""
     order = list(DEFAULT_WEIGHTS)
-    i = order.index(dimension) if dimension in order else 0
-    return AGENT_MODELS[i % len(AGENT_MODELS)]
+    return order.index(dimension) if dimension in order else 0

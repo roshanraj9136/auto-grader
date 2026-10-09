@@ -31,7 +31,7 @@ A demo student account and sample assignments are created on first start (SQLite
 docker compose up --build            # http://localhost:8080
 ```
 
-The AI reviewers run on a **free** model: create a key at [console.groq.com/keys](https://console.groq.com/keys) and put it in `.env` as `AUTOGRADER_LLM_API_KEY` (a Gemini key from [aistudio.google.com](https://aistudio.google.com/apikey) works too, and `ANTHROPIC_API_KEY` switches to Claude). Without any key the reviewers use rule-based scorers through the same pipeline.
+The AI reviewers run on **free** model tiers, chained: put a Gemini key (free at [aistudio.google.com](https://aistudio.google.com/apikey)) in `.env` as `GEMINI_API_KEY` and a Groq key (free at [console.groq.com/keys](https://console.groq.com/keys)) as `GROQ_API_KEY`. Gemini answers while it has quota; when it is rate-limited or its daily quota runs out, the same call goes to Groq, so reviews keep working. `ANTHROPIC_API_KEY` switches to Claude instead, and with no key at all the reviewers use rule-based scorers through the same pipeline.
 
 ## Documentation
 
@@ -71,6 +71,6 @@ scripts/      local launcher, latency benchmark, security check, icon generator
 | `AUTOGRADER_INSTRUCTOR_EMAIL`, `_PASSWORD` | The real instructor account |
 | `AUTOGRADER_SIGNUP_CODE` | Class join code students need to sign up |
 | `AUTOGRADER_DEMO_SEED` | 1 = public demo student and sample class, sign-up closed |
-| `AUTOGRADER_LLM_API_KEY` | Free AI reviewers: a Groq key (`gsk_...`) or a Gemini key. `ANTHROPIC_API_KEY` uses Claude instead |
+| `GEMINI_API_KEY`, `GROQ_API_KEY` | Free AI reviewers, tried in that order (`AUTOGRADER_LLM_ORDER` changes it). `ANTHROPIC_API_KEY` uses Claude instead |
 | `AUTOGRADER_MAX_CONCURRENT_JOBS` | Gradings per replica at the same time |
 | `AUTOGRADER_ENABLE_DOCKER` | 1 = build and run student Dockerfiles in the sandbox (use an isolated host) |

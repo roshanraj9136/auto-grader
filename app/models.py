@@ -44,6 +44,7 @@ class AgentReport(BaseModel):
     latency_ms: int = 0
     tokens: TokenUsage = TokenUsage()
     error: str | None = None
+    model: str = ""  # which model answered, "provider/model"; empty in heuristic mode
 
 
 class DimensionVerdict(BaseModel):
@@ -67,6 +68,7 @@ class JudgeVerdict(BaseModel):
     latency_ms: int = 0
     tokens: TokenUsage = TokenUsage()
     error: str | None = None
+    model: str = ""
 
 
 class DockerResult(BaseModel):

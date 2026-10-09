@@ -62,7 +62,7 @@ function upNextChecks(a) {
 function nextCard(next, improve) {
   if (next) {
     return `<article class="next"><h2>Up next</h2>
-      <h3 class="focus-title"><a href="/student/assignment/${next.id}"><span class="hl">${esc(next.title)}</span></a></h3>
+      <h3 class="focus-title"><a href="/student/assignment/${next.id}">${esc(next.title)}</a></h3>
       <div class="focus-meta">${dueMeta(next.due_at)}<span>${icon(TRACK_ICON[next.track] || "book")} ${esc(TRACKS[next.track] || next.track)}</span></div>
       ${next.description ? `<p class="focus-desc">${esc(next.description)}</p>` : ""}
       ${upNextChecks(next)}
@@ -70,7 +70,7 @@ function nextCard(next, improve) {
   }
   if (improve) {
     return `<article class="next"><h2>Raise a score</h2>
-      <h3 class="focus-title"><a href="/student/assignment/${improve.id}"><span class="hl">${esc(improve.title)}</span></a></h3>
+      <h3 class="focus-title"><a href="/student/assignment/${improve.id}">${esc(improve.title)}</a></h3>
       <div class="focus-meta">${dueMeta(improve.due_at)}<span>${icon("target")} Your best so far is ${esc(Math.round(improve.mine.best ?? 0))}</span></div>
       <p class="focus-desc">Every assignment has a submission. This one has the most room to grow, and your best score is the one that counts.</p>
       <div class="row-btns"><a class="btn lg" href="/student/assignment/${improve.id}">Improve and resubmit</a></div></article>`;
