@@ -5,7 +5,6 @@ import * as student from "./js/pages/student.js";
 import * as grader from "./js/pages/grader.js";
 import * as instructor from "./js/pages/instructor.js";
 import * as insights from "./js/pages/insights.js";
-import * as about from "./js/pages/about.js";
 import * as labs from "./js/pages/labs.js";
 import * as system from "./js/pages/system.js";
 
@@ -22,7 +21,6 @@ const ROUTES = [
   ["/student/profile", student.profile, "user", "Profile"],
   ["/labs", labs.index, "public", "Labs"],
   ["/labs/:lab", labs.lab, "public", "Lab"],
-  ["/how-it-works", about.page, "public", "How it works"],
   ["/grader", grader.page, "user", "Practice"],
   ["/jobs/:id", grader.job, "user", "Feedback"],
   ["/instructor/dashboard", instructor.dashboard, "instructor", "Class overview"],
@@ -40,19 +38,18 @@ const NAV = {
       ["/labs", "Labs", "flask"], ["/grader", "Practice", "zap"]]],
     ["Your progress", [["/student/submissions", "My submissions", "list"], ["/student/leaderboard", "Leaderboard", "trophy"],
       ["/student/profile", "Profile", "user"]]],
-    ["About", [["/how-it-works", "How it works", "layers"]]],
   ],
   instructor: [
     ["", [["/instructor/dashboard", "Overview", "chart"], ["/instructor/gradebook", "Gradebook", "list"],
       ["/instructor/students", "Students", "users"], ["/instructor/assignments", "Assignments", "book"]]],
     ["Course tools", [["/labs", "Labs", "flask"], ["/grader", "Practice grading", "zap"], ["/student/leaderboard", "Leaderboard", "trophy"]]],
-    ["Admin", [["/system", "Platform health", "activity"], ["/how-it-works", "How it works", "layers"], ["/student/profile", "Profile", "user"]]],
+    ["Admin", [["/system", "Platform health", "activity"], ["/student/profile", "Profile", "user"]]],
   ],
 };
 // Instructors work at a desk: their sections run across the top bar instead of a sidebar.
 const TABS = [["/instructor/dashboard", "Overview"], ["/instructor/gradebook", "Gradebook"], ["/instructor/students", "Students"],
   ["/instructor/assignments", "Assignments"], ["/labs", "Labs"], ["/grader", "Practice grading"], ["/student/leaderboard", "Leaderboard"],
-  ["/system", "Platform health"], ["/how-it-works", "How it works"]];
+  ["/system", "Platform health"]];
 const MOBILE = {
   student: [["/student/dashboard", "Home", "home"], ["/student/assignments", "Assignments", "book"], ["/labs", "Labs", "flask"],
     ["/student/submissions", "Results", "list"], ["/student/profile", "Profile", "user"]],
@@ -139,7 +136,7 @@ function renderShell() {
     $("#side-foot").innerHTML = "";
     $("#role-tabs").innerHTML = "";
     $("#top-user").innerHTML = "";
-    $("#top-links").innerHTML = `<a href="/how-it-works">How it works</a><a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a>`
+    $("#top-links").innerHTML = `<a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a>`
       + (state.demo ? "" : `<a href="/signup" class="btn sm">Create account</a>`);
   }
 }
@@ -182,6 +179,7 @@ async function render({ keepScroll = false, quiet = false } = {}) {
   if (route.page === landing.home && u) return navigate(homePath(), { replace: true });
 
   document.title = `${route.title} · AutoGrader+`;
+  document.body.classList.toggle("bleed", [landing.home, landing.login, landing.signup].includes(route.page));
   renderShell();
   // Each navigation renders into its own container: if the user navigates again while this page is
   // still loading, the stale page writes into a detached element instead of over the new page.

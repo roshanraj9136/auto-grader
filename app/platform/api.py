@@ -202,6 +202,10 @@ def _sub_out(r: dict) -> dict:
             "student": r.get("student_name"), "entry_no": r.get("entry_no")}
 
 
+def demo_student() -> dict | None:
+    return get_db().one("SELECT * FROM users WHERE email = 'student@autograder.local' AND role = 'student'")
+
+
 def submission_row(submission_id: int) -> dict:
     row = get_db().one("SELECT * FROM submissions WHERE id = ?", (submission_id,))
     if not row:

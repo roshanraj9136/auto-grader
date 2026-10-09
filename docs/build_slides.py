@@ -259,8 +259,8 @@ def s_overview():
              ("Security", "OWASP Top 10, secrets"), ("Testing", "unit, integration, CI"), ("Docker & DevOps", "images, compose, delivery")]
     for i, (t, d) in enumerate(areas):
         box(s, 0.6 + i * 2.47, 4.95, 2.3, 1.25, t, d, fill=PAPER, line=PAPER, title_size=14, body_size=11)
-    text(s, 0.6, 6.4, 12.2, 0.5, "Runs on Claude models (LLM mode) or, with no API key, on rule-based scorers through the same pipeline "
-                                 "(heuristic mode).", size=13, color=INK2)
+    text(s, 0.6, 6.4, 12.2, 0.5, "Runs on free AI models (Groq: GPT-OSS 20B and 120B) or Claude, or with no API key on rule-based scorers "
+                                 "through the same pipeline (heuristic mode).", size=13, color=INK2)
     notes(s, "Three parts. The grading engine: five reviewers, each responsible for one area, and a judge on top. The student "
              "view and the instructor view are built around what each group needs. Without an API key the same pipeline runs "
              "with deterministic rule-based scorers, which is how the public demo runs.")
@@ -278,7 +278,7 @@ def s_architecture():
         box(s, 6.45, y, 3.0, 0.85, f"API replica {i + 1}", "FastAPI: REST + SSE + grading", line=PEN, weight=1.5,
             title_size=13, body_size=10)
     deps = [("PostgreSQL", "accounts, grades, reports", INK, False), ("GitHub", "shallow clone", INK, False),
-            ("Claude API", "5 reviewers + judge", INK, False), ("Docker sandbox", "optional build + run", INK3, True)]
+            ("AI model API", "5 reviewers + judge", INK, False), ("Docker sandbox", "optional build + run", INK3, True)]
     for i, (t, d, c, dash) in enumerate(deps):
         y = 1.3 + i * 0.95
         arrow(s, 9.45, 3.05, 10.05, y + 0.4)
@@ -420,7 +420,7 @@ def s_results():
             ["Judge", "8–15 s", "150 s, then rule-based"]]
     table(s, 0.6, 3.9, 7.0, rows, [2.4, 1.7, 2.9], size=12.5, row_h=0.42)
     box(s, 7.9, 3.9, 4.85, 2.55, "Observed, not guessed", ["GET /api/metrics returns rolling p50 / p95 / max per stage.",
-                                                          "Platform health and How it works show them live.",
+                                                          "The Platform health page shows them live.",
                                                           "Critical path: clone → index → security → judge → report."],
         fill=PAPER, line=PAPER, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, title_size=15, body_size=12.5)
     notes(s, "On the benchmark repository the full grading takes 27.5 seconds instead of 75.5 if the stages ran one after another, "
@@ -538,7 +538,7 @@ def s_data_stack():
             ["job_events", "progress events, so any replica can stream any job"],
             ["report_artifacts", "full HTML / Markdown / JSON reports"], ["lab_progress", "completed lab tasks"]]
     table(s, 0.6, 1.5, 6.4, rows, [2.1, 4.3], size=12, row_h=0.4)
-    box(s, 7.3, 1.5, 5.45, 2.55, "Tech stack", ["Python 3.12, FastAPI, asyncio, Pydantic v2", "Claude API (forced tool use) or heuristics",
+    box(s, 7.3, 1.5, 5.45, 2.55, "Tech stack", ["Python 3.12, FastAPI, asyncio, Pydantic v2", "Free Groq models or Claude (forced tool use), or heuristics",
                                                 "PostgreSQL (psycopg 3) or SQLite", "HTML/CSS/JS modules, SVG charts, SSE, PWA"],
         fill=PAPER, line=PAPER, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, title_size=16, body_size=13)
     box(s, 7.3, 4.25, 5.45, 2.4, "Deployment", ["Docker: multi-stage, non-root, healthcheck",
@@ -574,7 +574,7 @@ def s_demo():
     s = new_slide("Live demo", "Thank you")
     steps = [f"Open {LIVE_URL} (allow a minute if it was asleep)", "Sign in → Student view: dashboard, feedback, labs",
              "Submit a repository and watch the reviewers run", "Sign in with the instructor account",
-             "Overview → Gradebook → an assignment's analytics", "How it works: architecture and live latency"]
+             "Overview → Gradebook → an assignment's analytics", "Platform health: live latency per stage"]
     for i, st in enumerate(steps):
         y = 1.6 + i * 0.72
         box(s, 0.6, y, 0.55, 0.55, str(i + 1), fill=INK, line=INK, title_color=WHITE, title_size=15, radius=0.5)
@@ -587,7 +587,7 @@ def s_demo():
                                  ("Demo logins are on the sign-in page", {"size": 13, "color": INK2, "space_before": 10})])
     text(s, 0.6, 6.2, 12.2, 0.6, "Questions?", size=30, bold=True, font=FONT_B, align=PP_ALIGN.CENTER)
     notes(s, "Demo plan: open the live site, look at the student side, submit a repository and watch the reviewers run in parallel, "
-             "then the instructor side: overview, gradebook and an assignment's analytics, and finally the How it works page with the "
+             "then the instructor side: overview, gradebook and an assignment's analytics, and finally the Platform health page with the "
              "live latency numbers. Thank you; happy to take questions.")
 
 

@@ -148,7 +148,7 @@ serves the web app, the REST API and the live progress streams, and runs grading
   <div class="node pen"><b>API replica 3</b>scale with --scale api=N</div></div></div>
   <div class="row deps"><span class="note">Each replica uses:</span>
   <div class="node"><b>PostgreSQL</b>accounts, grades, reports</div><div class="node"><b>GitHub</b>shallow clone</div>
-  <div class="node"><b>Claude API</b>5 reviewer calls + 1 judge call</div><div class="node opt"><b>Docker sandbox</b>optional build and run</div></div></div>
+  <div class="node"><b>AI model API</b>5 reviewer calls + 1 judge call (free Groq models)</div><div class="node opt"><b>Docker sandbox</b>optional build and run</div></div></div>
 <ul>
 <li><b>Shared state lives in PostgreSQL</b>: users, sessions, assignments, submissions, grade adjustments, reports, lab progress, replica heartbeats. Any replica can serve any page.</li>
 <li><b>Live progress is durable</b>: a job runs in the replica that accepted it and fans out its events in memory, and one writer task per replica also appends every event, in order, to the <code>job_events</code> table. A replica that does not hold the job streams it from that table, so any replica can serve any job's progress and sticky routing is no longer required.</li>
@@ -239,7 +239,7 @@ simulated as 0.8 s to first token, 20k input and 70 output tokens per second, so
 {table(["Stage", "Typical", "Hard limit"], [["Resolve and clone", "0.8&ndash;2.5 s", "120 s"], ["Index", "&lt; 0.1 s", "5,000 files, 40 MB read"],
     ["Each reviewer", "10&ndash;25 s", "120 s, then rule-based fallback"], ["Docker build and smoke run", "20&ndash;300 s", "600 s + 8 s run"],
     ["Judge", "8&ndash;15 s", "150 s, then rule-based calibration"]])}
-<p><code>GET /api/metrics</code> returns rolling p50, p95 and maximum latency per stage, shown live on the Platform health and How it works pages,
+<p><code>GET /api/metrics</code> returns rolling p50, p95 and maximum latency per stage, shown live on the Platform health page,
 so tail latency is observed rather than guessed.</p>
 </section>
 

@@ -7,7 +7,8 @@
 #   Use a free Neon database (no expiry): https://neon.com -> New project (region: AWS Singapore)
 #   -> copy the connection string and paste it as AUTOGRADER_DATABASE_URL when Render asks.
 # - No Docker daemon on Render: student Dockerfiles are linted statically, not built.
-# - To enable the LLM agents later, add ANTHROPIC_API_KEY in the service's Environment tab.
+# - AI reviewers (free): add AUTOGRADER_LLM_API_KEY = a Groq key from https://console.groq.com/keys in the
+#   service's Environment tab. Without a key the reviewers use rule-based scorers.
 services:
   - type: web
     name: autograder-plus

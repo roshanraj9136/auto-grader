@@ -1,92 +1,155 @@
-import { $, api, esc, homePath, icon, state, toast } from "../core.js";
+import { $, api, esc, homePath, icon, refreshMe, state, toast } from "../core.js";
 
-const LABS = [
-  ["frontend", "code", "Frontend", "Edit HTML, CSS and JS with a live preview and DOM checks."],
-  ["database", "database", "Databases", "Write SQL joins and aggregates, then watch an index change the query plan."],
-  ["loadbalancer", "network", "Load balancers", "Fire requests at round-robin, least-connections and sticky routing."],
-  ["network", "globe", "Networks", "Measure round trips, trace proxy headers and break down a request."],
-  ["docker", "box", "Docker", "Fix a Dockerfile until the linter has nothing left to say."],
+// Landing page, modelled on how code-review and grading products present themselves: one clear promise, one
+// action (paste a link), real screenshots, three steps, then what each kind of user gets.
+const SAMPLE_REPO = "https://github.com/dockersamples/example-voting-app";
+const GITHUB = "https://github.com/roshanraj9136";
+
+const STEPS = [
+  ["git", "Paste your GitHub link", "Any public repository: a website, an API, a full-stack app."],
+  ["zap", "Watch the review happen", "Five AI reviewers check your code, design, security, tests and Docker setup at the same time."],
+  ["checkCircle", "Fix it and score higher", "You get a score, the exact files to fix and how to fix them. Submit again and watch it go up."],
 ];
 
-const SAMPLE = [["Code quality", 8.1, "g-a"], ["Architecture", 7.9, "g-a"], ["Security", 6.2, "g-c"], ["Testing", 5.4, "g-c"], ["Docker", 8.4, "g-a"]];
+const AREAS = [["code", "Code quality", "a-code"], ["layers", "Architecture", "a-arch"], ["shield", "Security", "a-sec"],
+  ["testCheck", "Testing", "a-test"], ["box", "Docker & DevOps", "a-ops"]];
 
-// A public demo takes no real sign-ups: its calls to action open the demo accounts instead.
-const startHref = () => (state.demo ? "/login" : "/signup");
-const startText = () => (state.demo ? "Open the demo" : "Create a student account");
+function tryForm(id) {
+  return `<form class="try" id="${id}" novalidate>
+    <label class="sr" for="${id}-url">GitHub repository link</label>
+    <div class="try-box">${icon("git")}
+      <input id="${id}-url" type="url" inputmode="url" autocomplete="url" spellcheck="false"
+        placeholder="https://github.com/your-name/your-project" />
+      <button class="btn lg" type="submit">Review my code</button>
+    </div>
+    <p class="try-note"><span>Free. No sign-up needed.</span> <button type="button" class="linklike" data-sample>Try it with a sample project</button></p>
+    <p class="error" role="alert"></p>
+  </form>`;
+}
+
+function bindTry(view, id) {
+  const form = view.querySelector(`#${id}`);
+  if (!form) return;
+  const input = form.querySelector("input");
+  const err = form.querySelector(".error");
+  const btn = form.querySelector("button[type=submit]");
+  form.querySelector("[data-sample]").addEventListener("click", () => { input.value = SAMPLE_REPO; input.focus(); });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    err.textContent = "";
+    const url = input.value.trim();
+    if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/.test(url)) {
+      err.textContent = "Paste a public GitHub link, like https://github.com/your-name/your-project";
+      input.focus();
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Starting…";
+    try {
+      const r = await api("/api/try", { method: "POST", body: { repo_url: url } });
+      await refreshMe();
+      window.dispatchEvent(new Event("auth-changed"));
+      window.__nav(`/jobs/${encodeURIComponent(r.job_id)}`);
+    } catch (ex) {
+      err.textContent = ex.status === 429 ? "You've used the free reviews for this hour. Please try again later." : ex.message;
+      btn.disabled = false;
+      btn.textContent = "Review my code";
+    }
+  });
+}
+
+function shot(name, alt) {
+  return `<figure class="shot"><div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+    <img src="/img/${name}.webp" alt="${esc(alt)}" width="1600" height="1000" loading="lazy" decoding="async" /></figure>`;
+}
 
 export async function home(view) {
+  const canTry = state.demo;
   view.innerHTML = `
-  <section class="l-hero"><div class="l-wrap">
-    <div>
-      <h1>Push your project. Get it marked like a code review.</h1>
-      <p class="lead">AutoGrader+ reads your whole GitHub repo, from the frontend to the Dockerfile, and gives back a score,
-        the exact files to fix, and what to learn next. Usually in under a minute.</p>
-      <div class="cta">
-        <a class="btn lg" href="${startHref()}">${startText()}</a>
-        <a class="ghost lg" href="/how-it-works">How it works</a>
-      </div>
-      ${state.demo ? `<p class="demo">This is a public demo: open the student view with one click on the sign-in page.</p>` : ""}
+  <section class="hero"><div class="l-wrap">
+    <p class="hero-tag">${icon("sparkles")} AI code review for student projects</p>
+    <h1>Get your code reviewed in&nbsp;<span class="hl">a minute</span>.</h1>
+    <p class="hero-lead">Paste a GitHub link. Five AI reviewers check your project and tell you your score, what is wrong, and exactly how to fix it.</p>
+    ${canTry ? tryForm("try-top") : `<div class="cta"><a class="btn lg" href="/signup">Create a free account</a><a class="ghost lg" href="/login">Sign in</a></div>`}
+    <div class="hero-shot">${shot("feedback", "A review: score 58 out of 100, marks for each area and the top things to fix")}</div>
+  </div></section>
+
+  <section class="facts"><div class="l-wrap facts-row">
+    <div><b>5</b><span>AI reviewers on every project</span></div>
+    <div><b>~1 min</b><span>from link to full review</span></div>
+    <div><b>100%</b><span>free for students</span></div>
+    <div><b>5</b><span>hands-on labs to practise</span></div>
+  </div></section>
+
+  <section class="l-sec"><div class="l-wrap">
+    <h2 class="l-h center">Three steps. That's it.</h2>
+    <ol class="steps3">${STEPS.map(([ico, t, d], i) => `<li><span class="step-n">${i + 1}</span><span class="step-ico">${icon(ico)}</span>
+      <h3>${t}</h3><p>${d}</p></li>`).join("")}</ol>
+    <div class="areas" aria-label="What gets checked">${AREAS.map(([ico, t, cls]) => `<span class="area ${cls}">${icon(ico)}${t}</span>`).join("")}</div>
+  </div></section>
+
+  <section class="l-sec feature"><div class="l-wrap split">
+    <div class="split-text">
+      <p class="eyebrow a-code">For students</p>
+      <h2 class="l-h">Know exactly what to fix next</h2>
+      <ul class="ticks">
+        <li>${icon("check")}A score out of 100 and a mark for each part of your project</li>
+        <li>${icon("check")}The top problems first, with the file name and the fix</li>
+        <li>${icon("check")}Topics to learn next, picked from your own code</li>
+        <li>${icon("check")}Submit again as often as you like: your best score counts</li>
+      </ul>
     </div>
-    <figure class="sheet-demo" aria-label="Example feedback for a student's REST API: 76 out of 100, grade B">
-      <div class="sd-top"><code>aarav-s/campus-events-api</code><span>commit 3f9c2a1</span></div>
-      <div class="sd-score"><b>76</b><span>/100</span><strong>Grade B</strong></div>
-      <div class="sd-rows">${SAMPLE.map(([k, v, g]) => `<div class="${g}"><span>${k}</span><i style="--w:${v * 10}%"></i><b>${v}</b></div>`).join("")}</div>
-      <div class="sd-fix"><p>Fix this first</p><b><span class="hl">Hash passwords</span> before saving them</b> in <code>src/routes/auth.js</code></div>
-    </figure>
+    ${shot("student-dashboard", "Student dashboard with the next assignment, the last result and progress")}
   </div></section>
 
-  <section class="l-sec"><div class="l-wrap">
-    <h2 class="l-h">One course, two views</h2>
-    <p class="l-lead">Students see what to do next. Instructors see who needs help.</p>
-    <div class="roles">
-      <div class="role">
-        <h3>For students</h3><p class="role-who">Submit, read the feedback, improve.</p>
-        <ul>
-          <li>${icon("check")}<span>Every assignment lists exactly what will be checked and how much each part counts.</span></li>
-          <li>${icon("check")}<span>Feedback names the file and the fix, not just a number.</span></li>
-          <li>${icon("check")}<span>Resubmit as often as you like. Your best score counts.</span></li>
-          <li>${icon("check")}<span>Practise SQL, load balancers, networks and Docker in the labs.</span></li>
-        </ul>
-        <div class="row-btns"><a class="btn" href="${startHref()}">${state.demo ? "Open the student view" : "Create a student account"}</a></div>
-      </div>
-      <div class="role teach">
-        <h3>For instructors</h3><p class="role-who">Set the work, then watch the class.</p>
-        <ul>
-          <li>${icon("check")}<span>Publish an assignment with its own rubric weights and deadline.</span></li>
-          <li>${icon("check")}<span>See who hasn't started and who is scoring below 50, on one screen.</span></li>
-          <li>${icon("check")}<span>Read each assignment's distribution, median and spread, and spot students who share a repository or commit.</span></li>
-          <li>${icon("check")}<span>Adjust a grade with a reason, re-run a submission, and export the gradebook as CSV.</span></li>
-        </ul>
-        <div class="row-btns"><a class="ghost" href="/login">Sign in as an instructor</a></div>
-      </div>
+  <section class="l-sec feature alt"><div class="l-wrap split rev">
+    <div class="split-text">
+      <p class="eyebrow a-sec">For teachers</p>
+      <h2 class="l-h">See the whole class at a glance</h2>
+      <ul class="ticks red">
+        <li>${icon("check")}Who needs help, who hasn't started, and who may have copied</li>
+        <li>${icon("check")}A gradebook and statistics for every assignment</li>
+        <li>${icon("check")}Change a grade with a reason, or grade a submission again</li>
+        <li>${icon("check")}Set your own rubric and deadline; export grades to Excel</li>
+      </ul>
     </div>
+    ${shot("instructor-overview", "Teacher overview with the students who need attention and the grade distribution")}
   </div></section>
 
-  <section class="l-sec"><div class="l-wrap">
-    <h2 class="l-h">How a submission is marked</h2>
-    <p class="l-lead">The same four steps run for every repository, whether it's for an assignment or just practice.
-      <a href="/how-it-works">Read the full design, with latency numbers</a>.</p>
-    <ol class="steps4">
-      <li><h3>Download</h3><p>Your repo is cloned at the branch or commit you chose.</p></li>
-      <li><h3>Read</h3><p>Languages, tests, Dockerfiles and config files are found and indexed.</p></li>
-      <li><h3>Review</h3><p>Five reviewers check code quality, structure, security, tests and Docker at the same time.</p></li>
-      <li><h3>Judge</h3><p>A judge compares their notes, sets the score and writes your next steps.</p></li>
-    </ol>
+  <section class="l-sec feature"><div class="l-wrap split">
+    <div class="split-text">
+      <p class="eyebrow a-test">Practice</p>
+      <h2 class="l-h">Practise every layer of a full-stack app</h2>
+      <ul class="ticks green">
+        <li>${icon("check")}Frontend: HTML, CSS and JavaScript with a live preview</li>
+        <li>${icon("check")}Databases: write SQL and see how indexes speed it up</li>
+        <li>${icon("check")}Networks, load balancers and Docker, hands-on</li>
+        <li>${icon("check")}Everything runs in your browser. Nothing to install.</li>
+      </ul>
+      <div class="row-btns"><a class="ghost" href="/labs">Open the labs</a></div>
+    </div>
+    ${shot("lab-sql", "SQL lab with a query editor, the tables and tasks")}
   </div></section>
 
-  <section class="l-sec"><div class="l-wrap">
-    <h2 class="l-h">Practise each layer in the labs</h2>
-    <p class="l-lead">Everything runs in your browser. Sign in to save your progress and earn XP.</p>
-    <ul class="lab-rows">${LABS.map(([id, ico, t, d]) => `<li><a href="/labs/${id}">${icon(ico)}<b>${esc(t)}</b><span>${esc(d)}</span><span class="go">Open lab</span></a></li>`).join("")}</ul>
+  <section class="l-end"><div class="l-wrap end-box">
+    <h2>Find out your score in a minute.</h2>
+    ${canTry ? tryForm("try-bottom") : `<div class="cta"><a class="btn lg" href="/signup">Create a free account</a></div>`}
   </div></section>
 
-  <section class="l-end"><div class="l-wrap">
-    <div><h2>Your first feedback is a minute away.</h2><p>${state.demo ? "Open the demo, pick an assignment and submit a public repository."
-      : "Sign up with your class join code and submit a repository."}</p></div>
-    <a class="btn lg" href="${startHref()}">${startText()}</a>
-  </div></section>
-  <footer class="l-footer"><div class="l-wrap"><span>AutoGrader+, a CSL100 group project</span>
-    <nav aria-label="Footer"><a href="/how-it-works">How it works</a><a href="/labs">Labs</a><a href="/login">Sign in</a></nav></div></footer>`;
+  <footer class="site-foot"><div class="l-wrap foot-grid">
+    <div class="foot-brand"><a href="/" class="brand"><span class="logo">${icon("check")}</span><span>AutoGrader<i>+</i></span></a>
+      <p>AI code review and grading for full-stack student projects.</p>
+      <p class="made">Built by <a href="${GITHUB}" target="_blank" rel="noopener">Roshan Raj</a></p></div>
+    <nav aria-label="Product"><b>Product</b>${canTry ? `<a href="#try-top">Review my code</a>` : ""}<a href="/labs">Labs</a><a href="/login">Sign in</a></nav>
+    <nav aria-label="Project"><b>Project</b><a href="https://github.com/roshanraj9136/auto-grader" target="_blank" rel="noopener">Source code</a>
+      <a href="/docs" target="_blank" rel="noopener">API</a></nav>
+  </div><div class="l-wrap foot-base"><span>© ${new Date().getFullYear()} AutoGrader+</span></div></footer>`;
+  bindTry(view, "try-top");
+  bindTry(view, "try-bottom");
+  view.querySelector('a[href="#try-top"]')?.addEventListener("click", (e) => {
+    e.preventDefault();
+    view.querySelector("#try-top-url")?.focus();
+  });
 }
 
 function authLayout(view, title, sub, form) {

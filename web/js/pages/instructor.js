@@ -1,7 +1,7 @@
 // Instructor workspace: the class at a glance (what needs attention first), students, and assignment management.
 import {
   $, DEFAULT_WEIGHTS, DIMENSIONS, TRACKS, api, barChart, daysLeft, emptyState, esc, fmtDate, gradeBadge, hbars, icon, pageHeader, pct,
-  relTime, statusPill, toast,
+  readWeights, relTime, statusPill, toast, weightFields, bindWeights,
 } from "../core.js";
 import { subsTable } from "./student.js";
 
@@ -169,9 +169,8 @@ function assignmentForm(a = null) {
     <div class="field"><label for="a-desc">Description <span class="muted">(shown to students)</span></label><textarea id="a-desc" rows="3">${esc(a?.description || "")}</textarea></div>
     <div class="field"><label for="a-notes">What will be checked <span class="muted">(separate items with ; and students see a checklist)</span></label>
       <textarea id="a-notes" rows="3" placeholder="e.g. docker-compose with nginx in front of 2 API replicas; PostgreSQL on a private network; integration tests in CI">${esc(a?.rubric_notes || "")}</textarea></div>
-    <fieldset><legend>How much each area counts <span class="muted">(0 skips it)</span></legend>
-      <div class="weights">${Object.entries(DIMENSIONS).map(([k, label]) => `<div><label for="aw-${k}">${label}</label>
-        <input id="aw-${k}" type="number" min="0" max="1" step="0.05" value="${w[k] ?? 0}" /></div>`).join("")}</div></fieldset>
+    <fieldset><legend>How much each area counts <span class="muted">(0% skips it)</span></legend>
+      ${weightFields("aw", w)}</fieldset>
     <div class="field"><label for="a-due">Deadline <span class="muted">(your local time)</span></label><input id="a-due" type="datetime-local" value="${esc(due)}" /></div>
     <p id="a-err" class="error" role="alert"></p>
     <div class="row-btns"><button class="btn" type="submit" data-write>${a ? "Save changes" : "Publish assignment"}</button>
@@ -207,6 +206,7 @@ export async function assignments(view, _p, query) {
     editing = a?.id ?? null;
     $("#a-form-host").innerHTML = `<h2>${icon(a ? "edit" : "plus")} ${a ? `Edit ${esc(a.title)}` : "New assignment"}</h2>${assignmentForm(a)}`;
     $("#a-cancel")?.addEventListener("click", () => { edit(null); load(); });
+    bindWeights("aw");
     $("#a-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       $("#a-err").textContent = "";
@@ -214,7 +214,7 @@ export async function assignments(view, _p, query) {
       const body = {
         title: $("#a-title").value.trim(), track: $("#a-track").value, description: $("#a-desc").value.trim(),
         rubric_notes: $("#a-notes").value.trim(),
-        weights: Object.fromEntries(Object.keys(DIMENSIONS).map((k) => [k, parseFloat($(`#aw-${k}`).value) || 0])),
+        weights: readWeights("aw"),
         due_at: due ? new Date(due).toISOString() : null,
       };
       try {
