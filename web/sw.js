@@ -1,7 +1,7 @@
 // Service worker: makes AutoGrader+ installable and keeps the app shell available offline.
 // Strategy: network-first for everything (fresh deploys win), cached app shell as the offline fallback.
 // API calls, SSE streams and reports are never cached.
-const CACHE = "autograder-shell-v12";
+const CACHE = "autograder-shell-v14";
 const SHELL = [
   "/", "/styles.css", "/theme.js", "/app.js", "/js/core.js", "/js/pages/landing.js", "/js/pages/student.js", "/js/pages/grader.js",
   "/js/pages/instructor.js", "/js/pages/insights.js", "/js/pages/labs.js", "/js/pages/system.js", "/manifest.webmanifest", "/icons/icon.svg",

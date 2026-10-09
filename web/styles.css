@@ -676,9 +676,15 @@ th.sort[aria-sort] { color: var(--ink); }
 .auth-card { width: min(420px, 100%); padding: 34px 32px; margin: 0; }
 .auth-card h1 { font-size: 1.8rem; font-stretch: 116%; }
 .auth-card > .hint { margin: 8px 0 6px; }
-.demo-box { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--rule); }
-.demo-box p { font-size: .92rem; color: var(--ink-2); margin: 0 0 10px; }
-.demo-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .demo-btns.one { grid-template-columns: 1fr; }
+.google-btn { display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; }
+.google-btn svg { flex: none; }
+.or { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--ink-3); font-size: .85rem; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+.hint.center { text-align: center; }
+.auth-switch { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--rule); text-align: center; font-size: .93rem; }
+.auth-switch a { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-weight: 560; }
+.auth-switch a:hover { color: var(--pen); }
+.auth-switch .i { width: 16px; height: 16px; }
 
 /* ---------- leaderboard ---------- */
 .podium { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-lg); margin-bottom: var(--gap); }
