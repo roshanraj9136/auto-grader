@@ -48,6 +48,9 @@ TASK_DIMENSIONS: dict[tuple[str, str], tuple[str, ...]] = {
     ("network", "rtt"): ("devops",),
     ("network", "headers"): ("devops", "security"),
     ("network", "timing"): ("devops",),
+    ("testing", "cases"): ("testing",),
+    ("testing", "boundary"): ("testing",),
+    ("testing", "mutants"): ("testing",),
     ("docker", "clean"): ("devops", "security"),
     ("docker", "multistage"): ("devops",),
     ("docker", "hardened"): ("security", "devops"),
@@ -90,6 +93,15 @@ LABS: dict[str, dict] = {
             "rtt": ("Measure RTT (min / avg / p95 / jitter) over 20 requests", "client"),
             "headers": ("Find your request's path through the reverse proxy", "client"),
             "timing": ("Break a request down into DNS / TCP / TTFB / server time", "client"),
+        },
+    },
+    "testing": {
+        "title": "Testing: catch the bug", "track": "backend", "icon": "TEST",
+        "summary": "Write test cases for a marking function and see which seeded bugs your suite actually catches.",
+        "tasks": {
+            "cases": ("Write 4 test cases that all pass", "server"),
+            "boundary": ("Catch the off-by-one bug at 3 days late", "server"),
+            "mutants": ("Catch all four seeded bugs", "server"),
         },
     },
     "docker": {
@@ -459,3 +471,122 @@ def lab_dockerfile(body: DockerfileIn, user: dict | None = Depends(optional_user
         "score": max(0, 100 - sum({"critical": 40, "high": 20, "medium": 10, "low": 4, "info": 1}.get(f.severity, 0)
                                   for f in findings)),
     }
+
+
+# ---------------------------------------------------------------------------- Testing lab
+# Students write *test cases*, not code: each case is three numbers, so nothing they send is ever executed.
+# The function under test is graded the way their own submissions are: a reference implementation, plus four
+# seeded bugs ("mutants"). A case kills a mutant when it passes on the reference and fails on that mutant, which
+# is exactly what a real test suite is for.
+LATE_PENALTY_SOURCE = """def late_penalty(score, days_late):
+    \"\"\"The mark after a late penalty.
+
+    On time (0 days)      no penalty
+    1 to 3 days late      10 marks off
+    more than 3 days      30 marks off
+    The result never goes below 0.
+    \"\"\"
+    if days_late <= 0:
+        return score
+    penalty = 10 if days_late <= 3 else 30
+    return max(0, score - penalty)"""
+
+
+def _late_penalty(score: int, days_late: int) -> int:
+    if days_late <= 0:
+        return score
+    penalty = 10 if days_late <= 3 else 30
+    return max(0, score - penalty)
+
+
+def _bug_boundary(score: int, days_late: int) -> int:  # "<= 3" written as "< 3"
+    if days_late <= 0:
+        return score
+    penalty = 10 if days_late < 3 else 30
+    return max(0, score - penalty)
+
+
+def _bug_clamp(score: int, days_late: int) -> int:  # forgot that a mark cannot go below 0
+    if days_late <= 0:
+        return score
+    penalty = 10 if days_late <= 3 else 30
+    return score - penalty
+
+
+def _bug_ontime(score: int, days_late: int) -> int:  # penalises work that was handed in on time
+    if days_late < 0:
+        return score
+    penalty = 10 if days_late <= 3 else 30
+    return max(0, score - penalty)
+
+
+def _bug_swap(score: int, days_late: int) -> int:  # the two penalties the wrong way round
+    if days_late <= 0:
+        return score
+    penalty = 30 if days_late <= 3 else 10
+    return max(0, score - penalty)
+
+
+BUGS: dict[str, tuple[str, str, object]] = {
+    "boundary": ("Off by one at the boundary", "Treats 3 days late as if it were more than 3.", _bug_boundary),
+    "clamp": ("Marks can go negative", "Subtracts the penalty without stopping at 0.", _bug_clamp),
+    "ontime": ("On-time work is penalised", "Applies a penalty when days_late is 0.", _bug_ontime),
+    "swap": ("Penalties swapped", "Takes 30 marks for 1-3 days and 10 for longer.", _bug_swap),
+}
+MIN_CASES = 4
+
+
+class TestCase(BaseModel):
+    score: int = Field(ge=0, le=100)
+    days_late: int = Field(ge=0, le=60)
+    expected: int = Field(ge=0, le=100)
+
+
+class TestsIn(BaseModel):
+    cases: list[TestCase] = Field(min_length=1, max_length=20)
+    task: str | None = Field(default=None, max_length=40)
+
+
+def _check_tests_task(task: str, passing: int, killed: set[str]) -> tuple[bool, str]:
+    if task == "cases":
+        if passing < MIN_CASES:
+            return False, f"{passing} of your cases agree with the function. Write {MIN_CASES} that pass."
+        return True, f"{passing} correct cases. A test suite has to be right before it can be useful."
+    if task == "boundary":
+        if "boundary" not in killed:
+            return False, "Not yet: add a case for exactly 3 days late, where 10 marks should come off."
+        return True, "Caught it: your suite fails on the off-by-one version."
+    missing = [name for name in BUGS if name not in killed]
+    if missing:
+        return False, f"{len(killed)} of {len(BUGS)} bugs caught. Still hiding: {BUGS[missing[0]][0].lower()}."
+    return True, f"All {len(BUGS)} bugs caught. That is a suite worth keeping."
+
+
+@router.get("/api/lab/tests/source")
+def tests_source():
+    return {"source": LATE_PENALTY_SOURCE, "min_cases": MIN_CASES,
+            "bugs": [{"id": k, "title": v[0], "detail": v[1]} for k, v in BUGS.items()],
+            "tasks": {k: LABS["testing"]["tasks"][k][0] for k in LABS["testing"]["tasks"]}}
+
+
+@router.post("/api/lab/tests")
+def lab_tests(body: TestsIn, user: dict | None = Depends(optional_user)):
+    results = []
+    killed: set[str] = set()
+    for c in body.cases:
+        actual = _late_penalty(c.score, c.days_late)
+        passed = actual == c.expected
+        catches = [name for name, (_, _, fn) in BUGS.items() if passed and fn(c.score, c.days_late) != c.expected]
+        killed.update(catches)
+        results.append({"score": c.score, "days_late": c.days_late, "expected": c.expected,
+                        "actual": actual, "passed": passed, "catches": catches})
+    passing = sum(1 for r in results if r["passed"])
+    out = {"results": results, "passing": passing, "total": len(results),
+           "bugs": [{"id": k, "title": v[0], "detail": v[1], "caught": k in killed} for k, v in BUGS.items()]}
+    if body.task:
+        if body.task not in LABS["testing"]["tasks"]:
+            raise HTTPException(status_code=404, detail="unknown task")
+        ok, msg = _check_tests_task(body.task, passing, killed)
+        out["check"] = {"task": body.task, "passed": ok, "message": msg,
+                        "recorded": bool(ok and user and mark_done(user["id"], "testing", body.task))}
+    return out

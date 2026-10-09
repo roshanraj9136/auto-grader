@@ -519,6 +519,7 @@ def s_labs():
     picture(s, "lab-sql", 0.6, 1.5, w=6.6)
     bullets(s, 7.5, 1.55, 5.3, 5.2, [
         ("Frontend:", "HTML, CSS and JS editor with a sandboxed live preview and DOM checks."),
+        ("Testing:", "write test cases for a marking function; the server replays them against four seeded bugs."),
         ("Databases:", "SQL on a real schema; the server checks answers; see an index change the query plan."),
         ("Load balancers:", "real requests through Nginx to the replicas: round-robin, least-connections, sticky."),
         ("Networks:", "round-trip time, jitter, proxy headers, Server-Timing breakdown."),
@@ -526,7 +527,9 @@ def s_labs():
         ("XP only for server-verified tasks,", "so the leaderboard can't be inflated from the browser."),
     ], size=13.5)
     notes(s, "The labs let students practise each layer. They are not simulations: the SQL lab runs real queries checked by the "
-             "server, and the load-balancer lab sends real requests to the replicas.")
+             "server, and the load-balancer lab sends real requests to the replicas. The labs page also opens with 'Start here': "
+             "the next tasks, chosen from the student's weakest graded area, so practice follows their own review. The testing "
+             "lab is mutation testing - a suite only counts when it fails on the broken versions of the function.")
 
 
 def s_data_stack():

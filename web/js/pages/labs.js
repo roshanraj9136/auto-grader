@@ -61,7 +61,7 @@ function planPanel(rec) {
 export async function index(view) {
   await loadCatalog();
   const total = catalog.total_tasks, doneN = catalog.completed;
-  view.innerHTML = `${pageHeader("", "Labs", "Practise each part of the stack hands-on: frontend, databases, load balancers, networks and Docker. Everything runs in your browser.",
+  view.innerHTML = `${pageHeader("", "Labs", "Practise each part of the stack hands-on: frontend, testing, databases, load balancers, networks and Docker. Everything runs in your browser.",
       state.user ? `<div class="best-badge"><span class="stat-ico">${icon("flask")}</span><div><span>Your progress</span><b>${doneN} of ${total} tasks</b></div></div>` : "")}
     ${planPanel(catalog.recommended)}
     <section class="cards labs">${catalog.labs.map((l) => {
@@ -78,7 +78,8 @@ export async function lab(view, { lab: id }) {
   await loadCatalog();
   const l = catalog.labs.find((x) => x.id === id);
   if (!l) { view.innerHTML = emptyState("Unknown lab", "", `<a class="btn" href="/labs">All labs</a>`); return null; }
-  const impl = { frontend: frontendLab, database: databaseLab, loadbalancer: lbLab, network: networkLab, docker: dockerLab }[id];
+  const impl = { frontend: frontendLab, database: databaseLab, loadbalancer: lbLab, network: networkLab, docker: dockerLab,
+    testing: testingLab }[id];
   return impl(view, l);
 }
 
@@ -484,5 +485,124 @@ function dockerLab(view, l) {
     } catch (e) { $("#dk-out").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
   });
   $("#dk-reset").addEventListener("click", () => { $("#dk").value = DOCKER_STARTER; $("#dk-out").innerHTML = ""; });
+  return null;
+}
+
+// ======================================================================== Testing lab
+// Students write test cases as data (three numbers each), so nothing they type is ever run as code. The server
+// replays each case against the correct function and against four seeded bugs, and reports which bugs were caught.
+const TEST_START = [{ score: 80, days_late: 0, expected: 80 }, { score: 80, days_late: 1, expected: 70 }];
+
+async function testingLab(view, l) {
+  const meta = await api("/api/lab/tests/source");
+  let cases = TEST_START.map((c) => ({ ...c }));
+  let last = null;
+
+  const caseRows = () => cases.map((c, i) => `<tr>
+    <td><input type="number" min="0" max="100" value="${c.score}" data-f="score" data-i="${i}" aria-label="Case ${i + 1} score" /></td>
+    <td><input type="number" min="0" max="60" value="${c.days_late}" data-f="days_late" data-i="${i}" aria-label="Case ${i + 1} days late" /></td>
+    <td><input type="number" min="0" max="100" value="${c.expected}" data-f="expected" data-i="${i}" aria-label="Case ${i + 1} expected mark" /></td>
+    <td class="n">${verdictCell(i)}</td>
+    <td class="actions"><button class="icon-btn sm" data-del="${i}" type="button" aria-label="Remove case ${i + 1}">${icon("x")}</button></td></tr>`).join("");
+
+  const verdictCell = (i) => {
+    const r = last?.results?.[i];
+    if (!r) return `<span class="hint">–</span>`;
+    if (r.passed) {
+      return `<span class="tv ok">${icon("check")} passes</span>${r.catches.length
+        ? `<span class="tv-catch">catches ${r.catches.length}</span>` : ""}`;
+    }
+    return `<span class="tv bad">${icon("alert")} says ${r.actual}</span>`;
+  };
+
+  const bugCards = () => (last?.bugs || meta.bugs.map((b) => ({ ...b, caught: false }))).map((b) =>
+    `<li class="${b.caught ? "caught" : ""}">${icon(b.caught ? "checkCircle" : "target")}
+      <div><b>${esc(b.title)}</b><span>${esc(b.detail)}</span></div>
+      <span class="tag">${b.caught ? "caught" : "hiding"}</span></li>`).join("");
+
+  const paint = () => {
+    $("#t-rows").innerHTML = caseRows();
+    $("#t-bugs").innerHTML = bugCards();
+    const caught = (last?.bugs || []).filter((b) => b.caught).length;
+    $("#t-score").textContent = last ? `${last.passing} of ${last.total} cases pass · ${caught} of ${meta.bugs.length} bugs caught` : "";
+    bind();
+  };
+
+  const bind = () => {
+    view.querySelectorAll("#t-rows input").forEach((inp) => inp.addEventListener("change", () => {
+      const v = parseInt(inp.value, 10);
+      cases[+inp.dataset.i][inp.dataset.f] = Number.isFinite(v) ? v : 0;
+      last = null;
+      paint();
+    }));
+    view.querySelectorAll("#t-rows [data-del]").forEach((b) => b.addEventListener("click", () => {
+      if (cases.length <= 1) { toast("Keep at least one case.", "error"); return; }
+      cases.splice(+b.dataset.del, 1);
+      last = null;
+      paint();
+    }));
+  };
+
+  view.innerHTML = `${header(l)}
+  <section class="grid-2-1">
+    <div class="panel">
+      <div class="panel-h"><h2>${icon("testCheck")} Your test cases</h2><span class="hint" id="t-score"></span></div>
+      <div class="field"><label for="t-task">Task to check <span class="hint">(optional)</span></label>
+        <select id="t-task"><option value="">Free play: no check</option>${Object.entries(meta.tasks).map(([k, v]) =>
+          `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
+      <div class="table-wrap"><table class="cases"><thead><tr><th>Score</th><th>Days late</th><th>You expect</th>
+        <th class="n">Result</th><th></th></tr></thead><tbody id="t-rows"></tbody></table></div>
+      <div class="row-btns"><button class="btn" id="t-run" type="button">Run my tests</button>
+        <button class="ghost" id="t-add" type="button">${icon("plus")} Add a case</button>
+        <button class="ghost sm" id="t-hint" type="button">Show a solution</button></div>
+      <div id="t-check" role="status" aria-live="polite"></div>
+      <div class="bugs"><div class="panel-h"><h2>${icon("flame")} Bugs hiding in the code</h2>
+        <span class="hint">four broken versions</span></div>
+        <p class="hint">Each one is the same function with a single mistake. Your case catches a bug when it passes
+          against the real function but would fail against that broken version.</p>
+        <ul class="bug-list" id="t-bugs"></ul></div>
+    </div>
+    <div>
+      <div class="panel"><h2>${icon("code")} The function you are testing</h2>
+        <pre class="schema">${esc(meta.source)}</pre></div>
+      ${tasksPanel("testing")}
+      <div class="panel"><h2>${icon("bulb")} Learn the concepts</h2><ul class="concepts">
+        <li><b>A test is an example</b>: given this input, I expect that answer. Write the answer yourself, never copy it from the code.</li>
+        <li><b>Boundaries</b> are where bugs live: if a rule changes at 3 days, test 2, 3 and 4.</li>
+        <li><b>Edge cases</b>: the smallest input, the largest, and the one that would go negative.</li>
+        <li><b>Mutation testing</b> grades your tests by breaking the code on purpose. Tests that still pass on broken
+          code are not protecting you.</li></ul></div>
+    </div>
+  </section>`;
+  paint();
+
+  $("#t-add").addEventListener("click", () => {
+    cases.push({ score: 80, days_late: 0, expected: 80 });
+    last = null;
+    paint();
+    view.querySelector(`#t-rows input[data-i="${cases.length - 1}"]`)?.focus();
+  });
+  $("#t-hint").addEventListener("click", () => {
+    cases = [{ score: 80, days_late: 0, expected: 80 }, { score: 80, days_late: 3, expected: 70 },
+      { score: 80, days_late: 4, expected: 50 }, { score: 5, days_late: 1, expected: 0 }];
+    last = null;
+    paint();
+    toast("One suite that catches all four. Try to see why each row matters.");
+  });
+  $("#t-run").addEventListener("click", async () => {
+    const task = $("#t-task").value || null;
+    $("#t-run").disabled = true;
+    $("#t-check").innerHTML = "";
+    try {
+      last = await api("/api/lab/tests", { method: "POST", body: { cases, task } });
+      paint();
+      if (last.check) {
+        $("#t-check").innerHTML = `<p class="check-msg ${last.check.passed ? "ok" : "bad"}">${icon(last.check.passed ? "checkCircle" : "alert")} ${esc(last.check.message)}</p>`;
+        if (last.check.passed) await complete("testing", task, { serverRecorded: true });
+      }
+    } catch (e) {
+      $("#t-check").innerHTML = `<p class="error">${icon("alert")} ${esc(e.message)}</p>`;
+    } finally { $("#t-run").disabled = false; }
+  });
   return null;
 }

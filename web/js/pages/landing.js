@@ -110,7 +110,7 @@ function miniGradebook() {
 
 function miniPlan() {
   const rows = [
-    ["testCheck", "a-test", "Write your first unit test", "Testing lab · task 1", "Testing 1.0"],
+    ["testCheck", "a-test", "Catch the off-by-one bug", "Testing lab · task 2", "Testing 1.0"],
     ["shield", "a-sec", "Keep secrets out of your code", "Security lab · task 2", "Security 4.0"],
     ["database", "a-code", "Make a query use an index", "Database lab · task 4", "Next up"],
   ];
@@ -138,7 +138,7 @@ export async function home(view) {
     <div><b>5</b><span>reviewers per project</span></div>
     <div><b>~1 min</b><span>link to full review</span></div>
     <div><b>Free</b><span>no card, no limits per class</span></div>
-    <div><b>17</b><span>hands-on practice tasks</span></div>
+    <div><b>20</b><span>hands-on practice tasks</span></div>
   </div></section>
 
   <section class="l-sec plain"><div class="l-wrap">
@@ -169,6 +169,7 @@ export async function home(view) {
       <h2 class="l-h">Practice chosen from your own code</h2>
       <p class="l-sub">The review knows your weakest area, so the labs start with the tasks that raise your score the most.</p>
       <ul class="ticks">
+        <li>${icon("check")}Write tests and see which seeded bugs your suite catches</li>
         <li>${icon("check")}Write SQL against a real schema and read the query plan</li>
         <li>${icon("check")}Send traffic through a load balancer and watch it spread</li>
         <li>${icon("check")}Fix a Dockerfile against the same linter that grades you</li>

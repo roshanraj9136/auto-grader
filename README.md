@@ -12,7 +12,7 @@ Open the live link and choose **Open the demo**, then **Open the student view**.
 
 ## What it does
 
-**For students:** assignments with visible rubrics, live grading progress, feedback with marks by area and numbered fixes, score history and skills, XP and a leaderboard, and five hands-on labs (frontend, SQL, load balancers, networks, Docker).
+**For students:** assignments with visible rubrics, live grading progress, feedback with marks by area and numbered fixes, score history and skills, XP and a leaderboard, and six hands-on labs (frontend, testing, SQL, load balancers, networks, Docker) whose next tasks are picked from the student's own weakest marks.
 
 **For instructors:** a class overview that starts with what needs attention (shared repositories, failed gradings, students below 50, students who haven't started), a gradebook, per-assignment analytics (distribution, median, spread, possible copying), student profiles, grade adjustment with a reason, re-grading, and CSV export.
 
