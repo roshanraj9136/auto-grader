@@ -189,9 +189,9 @@ export async function home(view) {
   <footer class="site-foot"><div class="l-wrap"><div class="foot-grid">
     <div class="foot-brand"><a href="/" class="brand"><span class="logo">${icon("check")}</span><span>AutoGrader<i>+</i></span></a>
       <p>AI code review and grading for full-stack student projects.</p></div>
-    <nav aria-label="Product"><b>Product</b>${canTry ? `<a href="#try-top">Review my code</a>` : ""}<a href="/labs">Labs</a><a href="/login">Student sign-in</a><a href="/login/instructor">Instructor sign-in</a></nav>
+    <nav aria-label="Product"><b>Product</b>${canTry ? `<a href="#try-top">Review my code</a>` : ""}<a href="/login">Student sign-in</a><a href="/login/instructor">Instructor sign-in</a></nav>
     <nav aria-label="Project"><b>Project</b><a href="https://github.com/roshanraj9136/auto-grader" target="_blank" rel="noopener">Source code</a>
-      <a href="/docs" target="_blank" rel="noopener">API reference</a></nav>
+      <a href="/docs" target="_blank" rel="noopener">API reference</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
   </div><div class="foot-base"><span>© ${new Date().getFullYear()} AutoGrader+</span>
     <span>Built by <b><a href="${GITHUB}" target="_blank" rel="noopener">Roshan Raj</a></b></span></div></div></footer>`;
   bindTry(view, "try-top");
@@ -341,4 +341,64 @@ export async function signup(view, _p, query) {
     }
   });
   $("#name").focus();
+}
+
+// ---------------------------------------------------------------------- privacy and terms
+// Short, honest pages. Google's consent screen links to them, and signing in with Google means handing this
+// site an email address, so it should say plainly what happens to it.
+const UPDATED = "9 October 2026";
+
+function legalPage(view, title, body) {
+  view.innerHTML = `<section class="legal"><div class="l-wrap narrow">
+    <h1>${esc(title)}</h1><p class="hint">Last updated ${UPDATED}</p>${body}
+    <p class="legal-back"><a href="/">Back to AutoGrader+</a></p>
+  </div></section>`;
+}
+
+export async function privacy(view) {
+  legalPage(view, "Privacy", `
+    <p>AutoGrader+ is a student project by <a href="${GITHUB}" target="_blank" rel="noopener">Roshan Raj</a>. It is
+      used for coursework, and it keeps as little about you as it can.</p>
+    <h2>What is stored</h2>
+    <ul>
+      <li><b>Your account:</b> name, email address, and entry number if you give one. Signing in with Google gives
+        this site your email address, your name and your profile picture URL; only the email and name are stored.</li>
+      <li><b>Your work:</b> the public repository links you submit, the reviews produced for them, your scores and
+        your lab progress.</li>
+      <li><b>Sign-in sessions:</b> a cookie holding a random token. Passwords are stored only as a salted hash,
+        never as text. Accounts created through Google have no usable password at all.</li>
+    </ul>
+    <h2>What is not stored</h2>
+    <p>Your code is cloned to review it and deleted as soon as the review finishes. Nothing is sold, and there is
+      no advertising or tracking of any kind on this site.</p>
+    <h2>Who can see it</h2>
+    <p>Your instructor can see your submissions, scores and feedback, which is the point of a grading tool. Other
+      students can see only your name and score on the leaderboard. Nobody else has access.</p>
+    <h2>Other services</h2>
+    <p>Reviews are produced by Google Gemini and Groq, so the contents of the public repository you submit are sent
+      to whichever of those answers. Sign-in with Google is handled by Google. The site runs on Render, with its
+      database at Neon.</p>
+    <h2>Removing your data</h2>
+    <p>Ask your instructor to delete your account, or write to the address on the
+      <a href="${GITHUB}" target="_blank" rel="noopener">project page</a>. Deleting an account removes its
+      submissions and reviews with it.</p>`);
+}
+
+export async function terms(view) {
+  legalPage(view, "Terms", `
+    <p>AutoGrader+ is a free student project, offered as it is, with no guarantee that it will be available or
+      that its marks are correct.</p>
+    <h2>Using it</h2>
+    <ul>
+      <li>Submit only repositories you have the right to submit.</li>
+      <li>Do not try to break, overload or get around the limits of the site, and do not use it to attack anything else.</li>
+      <li>A score here is produced by AI models and is not a final academic grade. Your instructor decides your grade
+        and can change any mark.</li>
+    </ul>
+    <h2>Accounts</h2>
+    <p>Keep your sign-in to yourself. Instructor access is granted only by an existing instructor. An account may be
+      removed if it is used to disrupt the site or to copy someone else's work.</p>
+    <h2>Availability</h2>
+    <p>The site runs on free hosting, so it sleeps when idle and may be slow, down or reset without notice. Keep your
+      own copy of anything that matters to you.</p>`);
 }

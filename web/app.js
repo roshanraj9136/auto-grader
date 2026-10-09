@@ -20,6 +20,8 @@ const ROUTES = [
   ["/student/submissions", student.submissions, "user", "My submissions"],
   ["/student/leaderboard", student.leaderboard, "user", "Leaderboard"],
   ["/student/profile", student.profile, "user", "Profile"],
+  ["/privacy", landing.privacy, "public", "Privacy"],
+  ["/terms", landing.terms, "public", "Terms"],
   ["/labs", labs.index, "public", "Labs"],
   ["/labs/:lab", labs.lab, "public", "Lab"],
   ["/grader", grader.page, "user", "Practice"],
@@ -137,9 +139,9 @@ function renderShell() {
     $("#side-foot").innerHTML = "";
     $("#role-tabs").innerHTML = "";
     $("#top-user").innerHTML = "";
-    $("#top-links").innerHTML = `<a href="/labs">Labs</a>`
-      + `<a href="/login/instructor" class="keep">Instructor</a>`
-      + `<a href="/login" class="btn sm">Student sign-in</a>`;
+    // On a narrow screen the labels shorten to "Instructor" / "Student" so both buttons still fit.
+    $("#top-links").innerHTML = `<a href="/login/instructor" class="ghost sm keep">Instructor<span class="hide-xs"> sign-in</span></a>`
+      + `<a href="/login" class="btn sm keep">Student<span class="hide-xs"> sign-in</span></a>`;
   }
 }
 
