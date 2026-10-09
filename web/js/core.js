@@ -19,7 +19,7 @@ export const TRACKS = {
   devops: "DevOps", security: "Security", fullstack: "Full-stack",
 };
 
-export const state = { user: null, demo: false, signupCode: false };
+export const state = { user: null, demo: false, signupCode: false, signupOpen: false, google: false, googleDomain: "" };
 
 // Public demo logins (AUTOGRADER_DEMO_SEED=1). The server refuses their write actions; the UI says so up front.
 const DEMO_LOGINS = new Set(["instructor@autograder.local", "student@autograder.local"]);
@@ -148,6 +148,9 @@ export async function refreshMe() {
     state.user = me.user;
     state.demo = me.demo;
     state.signupCode = me.signup_code_required;
+    state.signupOpen = me.signup_open;
+    state.google = me.google;
+    state.googleDomain = me.google_domain || "";
   } catch {
     state.user = null;
   }

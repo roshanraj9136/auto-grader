@@ -11,7 +11,8 @@ import * as system from "./js/pages/system.js";
 // [pattern, page, access, title]   access: public | guest | user | instructor
 const ROUTES = [
   ["/", landing.home, "public", "Learn full-stack development"],
-  ["/login", landing.login, "guest", "Sign in"],
+  ["/login", landing.login, "guest", "Student sign-in"],
+  ["/login/instructor", landing.instructorLogin, "guest", "Instructor sign-in"],
   ["/signup", landing.signup, "guest", "Create account"],
   ["/student/dashboard", student.dashboard, "user", "Dashboard"],
   ["/student/assignments", student.assignments, "user", "Assignments"],
@@ -136,8 +137,9 @@ function renderShell() {
     $("#side-foot").innerHTML = "";
     $("#role-tabs").innerHTML = "";
     $("#top-user").innerHTML = "";
-    $("#top-links").innerHTML = `<a href="/labs">Labs</a><a href="/login" class="keep">Sign in</a>`
-      + (state.demo ? "" : `<a href="/signup" class="btn sm">Create account</a>`);
+    $("#top-links").innerHTML = `<a href="/labs">Labs</a>`
+      + `<a href="/login/instructor" class="keep">Instructor</a>`
+      + `<a href="/login" class="btn sm">Student sign-in</a>`;
   }
 }
 

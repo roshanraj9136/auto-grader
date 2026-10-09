@@ -148,6 +148,20 @@ COOKIE_SECURE = os.getenv("AUTOGRADER_COOKIE_SECURE", "0") == "1"   # set to 1 b
 SIGNUP_CODE = os.getenv("AUTOGRADER_SIGNUP_CODE", "").strip()
 # Header set by the edge proxy with the real client IP (e.g. cf-connecting-ip on Render, behind Cloudflare). If unset,
 # the right-most X-Forwarded-For entry is used: it is the one added by the closest proxy, so a client cannot forge it.
+# ---- Sign in with Google (optional) -----------------------------------------
+# Credentials from a Google Cloud OAuth 2.0 "Web application" client. The redirect URI registered there must be
+# <your site>/api/auth/google/callback. GOOGLE_ALLOWED_DOMAIN restricts who may sign in: with "iitbhilai.ac.in"
+# only @iitbhilai.ac.in addresses are accepted, so the class stays closed to outsiders. Empty = anyone with a
+# Google account, which is only sensible for a private deployment.
+GOOGLE_CLIENT_ID = os.getenv("AUTOGRADER_GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("AUTOGRADER_GOOGLE_CLIENT_SECRET", "").strip()
+GOOGLE_ALLOWED_DOMAIN = os.getenv("AUTOGRADER_GOOGLE_ALLOWED_DOMAIN", "").strip().lower().lstrip("@")
+
+
+def google_enabled() -> bool:
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+
 CLIENT_IP_HEADER = os.getenv("AUTOGRADER_CLIENT_IP_HEADER", "").strip().lower()        # optional class join code for self sign-up
 INSTRUCTOR_EMAIL = os.getenv("AUTOGRADER_INSTRUCTOR_EMAIL", "").strip().lower()
 INSTRUCTOR_PASSWORD = os.getenv("AUTOGRADER_INSTRUCTOR_PASSWORD", "")

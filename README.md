@@ -70,6 +70,7 @@ scripts/      local launcher, latency benchmark, security check, icon generator
 | `AUTOGRADER_DATABASE_URL` | PostgreSQL URL (SQLite in the work directory if unset) |
 | `AUTOGRADER_INSTRUCTOR_EMAIL`, `_PASSWORD` | The first instructor account, created on start-up. After that, any instructor can promote a student from **Students → Make instructor** |
 | `AUTOGRADER_SIGNUP_CODE` | Class join code students need to sign up |
+| `AUTOGRADER_GOOGLE_CLIENT_ID`, `_SECRET`, `_ALLOWED_DOMAIN` | Sign in with Google, restricted to one email domain. Google accounts are always created as students |
 | `AUTOGRADER_DEMO_SEED` | 1 = public demo student and sample class, sign-up closed |
 | `GEMINI_API_KEY`, `GROQ_API_KEY` | Free AI reviewers, tried in that order (`AUTOGRADER_LLM_ORDER` changes it). `ANTHROPIC_API_KEY` uses Claude instead |
 | `AUTOGRADER_MAX_CONCURRENT_JOBS` | Gradings per replica at the same time |

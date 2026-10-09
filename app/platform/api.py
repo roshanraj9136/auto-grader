@@ -1,15 +1,21 @@
 """Platform REST API: auth, assignments, student dashboard, leaderboard, instructor analytics, gradebook."""
 from __future__ import annotations
 
+import base64
 import csv
 import hmac
 import io
 import json
+import logging
 import re
+import secrets
+import urllib.error
+import urllib.request
 from collections import defaultdict
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import config
@@ -27,6 +33,7 @@ def _not_demo(user: dict, action: str) -> None:
     if is_demo_account(user):
         raise HTTPException(status_code=403, detail=f"The public demo account can't {action}. Sign in with your own account.")
 
+log = logging.getLogger("autograder.api")
 router = APIRouter()
 DIMENSIONS = list(config.DEFAULT_WEIGHTS)
 TRACKS = ["frontend", "backend", "database", "networking", "devops", "security", "fullstack"]
@@ -328,10 +335,118 @@ def logout(request: Request, response: Response):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------------------- sign in with Google
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_OAUTH_STATE_COOKIE = "ag_oauth"
+
+
+def _redirect_uri(request: Request) -> str:
+    """The callback this deployment is reached on. Render terminates TLS, so trust the forwarded scheme."""
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    return f"{scheme}://{request.url.netloc}/api/auth/google/callback"
+
+
+def _safe_next(value: str | None) -> str:
+    return value if value and value.startswith("/") and not value.startswith("//") else ""
+
+
+@router.get("/api/auth/google/start")
+def google_start(request: Request, next: str = ""):
+    """Send the browser to Google. `state` is a one-time value kept in a short cookie and checked on the way back,
+    so a callback forged by another site cannot sign anyone in."""
+    if not config.google_enabled():
+        raise HTTPException(status_code=404, detail="Google sign-in is not configured")
+    state = secrets.token_urlsafe(24)
+    params = {
+        "client_id": config.GOOGLE_CLIENT_ID,
+        "redirect_uri": _redirect_uri(request),
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "prompt": "select_account",
+    }
+    if config.GOOGLE_ALLOWED_DOMAIN:
+        params["hd"] = config.GOOGLE_ALLOWED_DOMAIN  # asks Google to offer only that domain's accounts
+    resp = RedirectResponse(f"{GOOGLE_AUTH_URL}?{urlencode(params)}", status_code=303)
+    resp.set_cookie(_OAUTH_STATE_COOKIE, f"{state}|{_safe_next(next)}", max_age=600, httponly=True,
+                    samesite="lax", secure=config.COOKIE_SECURE, path="/")
+    return resp
+
+
+def _google_identity(code: str, redirect_uri: str) -> dict:
+    """Swap the one-time code for an ID token, server to server.
+
+    The ID token is read without checking its signature on purpose: it came straight from Google's token endpoint
+    over TLS, authenticated with our client secret, which is the case Google's own documentation exempts. A token
+    handed to us by a browser would have to be verified instead.
+    """
+    body = urlencode({"code": code, "client_id": config.GOOGLE_CLIENT_ID, "client_secret": config.GOOGLE_CLIENT_SECRET,
+                      "redirect_uri": redirect_uri, "grant_type": "authorization_code"}).encode()
+    req = urllib.request.Request(GOOGLE_TOKEN_URL, data=body, method="POST", headers={
+        "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            token = json.loads(r.read())
+    except urllib.error.HTTPError as exc:  # a reused or expired code lands here
+        log.warning("google token exchange failed: HTTP %s", exc.code)
+        raise HTTPException(status_code=400, detail="Google sign-in failed. Please try again.") from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise HTTPException(status_code=503, detail="Could not reach Google. Please try again.") from exc
+    id_token = token.get("id_token") or ""
+    parts = id_token.split(".")
+    if len(parts) != 3:
+        raise HTTPException(status_code=400, detail="Google sign-in failed. Please try again.")
+    payload = parts[1]
+    claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    if claims.get("aud") != config.GOOGLE_CLIENT_ID or claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        raise HTTPException(status_code=400, detail="Google sign-in failed. Please try again.")
+    return claims
+
+
+@router.get("/api/auth/google/callback")
+def google_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    if not config.google_enabled():
+        raise HTTPException(status_code=404, detail="Google sign-in is not configured")
+    cookie = request.cookies.get(_OAUTH_STATE_COOKIE, "")
+    expected, _, next_path = cookie.partition("|")
+    if error or not code or not state or not expected or not hmac.compare_digest(state, expected):
+        return RedirectResponse("/login?error=google", status_code=303)
+
+    claims = _google_identity(code, _redirect_uri(request))
+    email = (claims.get("email") or "").strip().lower()
+    domain = config.GOOGLE_ALLOWED_DOMAIN
+    if not email or claims.get("email_verified") is False:
+        return RedirectResponse("/login?error=google", status_code=303)
+    if domain and not (email.endswith("@" + domain) or (claims.get("hd") or "").lower() == domain):
+        return RedirectResponse("/login?error=domain", status_code=303)
+    if email.endswith("autograder.local"):  # reserved for the sample accounts
+        return RedirectResponse("/login?error=google", status_code=303)
+
+    db = get_db()
+    user = db.one("SELECT * FROM users WHERE email = ?", (email,))
+    if not user:
+        # Google accounts always start as students; instructor access is granted from the Students page.
+        name = (claims.get("name") or email.split("@")[0]).strip()[:80]
+        db.insert("INSERT INTO users (email, name, entry_no, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                  (email, name, None, hash_password(secrets.token_urlsafe(32)), "student", now_iso()))
+        user = db.one("SELECT * FROM users WHERE email = ?", (email,))
+        log.warning("new account from Google sign-in: %s", email)
+    resp = RedirectResponse(_safe_next(next_path) or homepath_for(user), status_code=303)
+    resp.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
+    start_session(resp, user["id"])
+    return resp
+
+
+def homepath_for(user: dict) -> str:
+    return "/instructor/dashboard" if user["role"] == "instructor" else "/student/dashboard"
+
+
 @router.get("/api/auth/me")
 def me(user: dict | None = Depends(optional_user)):
     return {"user": public_user(user) if user else None, "signup_code_required": bool(config.SIGNUP_CODE),
-            "demo": config.DEMO_SEED, "signup_open": not config.DEMO_SEED}
+            "demo": config.DEMO_SEED, "signup_open": not config.DEMO_SEED,
+            "google": config.google_enabled(), "google_domain": config.GOOGLE_ALLOWED_DOMAIN}
 
 
 class ProfileIn(BaseModel):

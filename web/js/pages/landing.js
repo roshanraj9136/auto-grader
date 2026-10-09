@@ -189,7 +189,7 @@ export async function home(view) {
   <footer class="site-foot"><div class="l-wrap"><div class="foot-grid">
     <div class="foot-brand"><a href="/" class="brand"><span class="logo">${icon("check")}</span><span>AutoGrader<i>+</i></span></a>
       <p>AI code review and grading for full-stack student projects.</p></div>
-    <nav aria-label="Product"><b>Product</b>${canTry ? `<a href="#try-top">Review my code</a>` : ""}<a href="/labs">Labs</a><a href="/login">Sign in</a></nav>
+    <nav aria-label="Product"><b>Product</b>${canTry ? `<a href="#try-top">Review my code</a>` : ""}<a href="/labs">Labs</a><a href="/login">Student sign-in</a><a href="/login/instructor">Instructor sign-in</a></nav>
     <nav aria-label="Project"><b>Project</b><a href="https://github.com/roshanraj9136/auto-grader" target="_blank" rel="noopener">Source code</a>
       <a href="/docs" target="_blank" rel="noopener">API reference</a></nav>
   </div><div class="foot-base"><span>© ${new Date().getFullYear()} AutoGrader+</span>
@@ -216,8 +216,60 @@ function nextPath(query) {
   return n && n.startsWith("/") && !n.startsWith("//") ? n : null;
 }
 
+const GOOGLE_MARK = `<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true" focusable="false">
+  <path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.2-.4-4.7H24v8.9h11.8a10 10 0 0 1-4.4 6.6v5.5h7.1c4.2-3.8 6.6-9.5 6.6-16.3z"/>
+  <path fill="#34A853" d="M24 46c6 0 11-2 14.6-5.2l-7.1-5.5c-2 1.3-4.5 2.1-7.5 2.1-5.8 0-10.7-3.9-12.4-9.1H4.3v5.7A22 22 0 0 0 24 46z"/>
+  <path fill="#FBBC05" d="M11.6 28.3a13.2 13.2 0 0 1 0-8.6v-5.7H4.3a22 22 0 0 0 0 20l7.3-5.7z"/>
+  <path fill="#EA4335" d="M24 9.5c3.3 0 6.2 1.1 8.5 3.3l6.3-6.3C35 2.9 30 1 24 1A22 22 0 0 0 4.3 14l7.3 5.7C13.3 13.4 18.2 9.5 24 9.5z"/>
+</svg>`;
+
+const AUTH_ERRORS = {
+  google: "That didn't work. Please try signing in with Google again.",
+  domain: () => `Use your college Google account${state.googleDomain ? ` (${state.googleDomain})` : ""}. Other accounts can't sign in here.`,
+};
+
+/** The "Continue with Google" button, when the server has Google sign-in configured. */
+function googleButton(next) {
+  if (!state.google) return "";
+  const href = `/api/auth/google/start${next ? `?next=${encodeURIComponent(next)}` : ""}`;
+  return `<a class="ghost block lg google-btn" href="${href}">${GOOGLE_MARK} Continue with Google</a>
+    ${state.googleDomain ? `<p class="hint center">For ${esc(state.googleDomain)} accounts</p>` : ""}
+    <div class="or"><span>or</span></div>`;
+}
+
+function authError(query) {
+  const key = query?.get("error");
+  const msg = AUTH_ERRORS[key];
+  return msg ? `<p class="error" style="margin-bottom:14px">${esc(typeof msg === "function" ? msg() : msg)}</p>` : "";
+}
+
+function bindPasswordForm(view, query, { onDone } = {}) {
+  const submit = async (email, password) => {
+    $("#err").textContent = "";
+    try {
+      const res = await api("/api/auth/login", { method: "POST", body: { email, password } });
+      state.user = res.user;
+      toast(`Signed in as ${res.user.name.split(" ")[0]}`, "ok");
+      onDone?.(res.user);
+      window.__nav(nextPath(query) || homePath(), { replace: true });
+    } catch (e) {
+      $("#err").textContent = e.status === 401 ? "That email and password don't match. Check both and try again."
+        : e.status === 429 ? "Too many attempts. Please wait a few minutes and try again."
+        : e.message;
+    }
+  };
+  $("#login-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    submit($("#email").value.trim(), $("#password").value);
+  });
+  $("#email").focus();
+}
+
 export async function login(view, _p, query) {
-  authLayout(view, "Sign in", "Students see their assignments and feedback. Instructors see the class.", `
+  const next = nextPath(query) || "";
+  authLayout(view, "Student sign-in", "Your assignments, your feedback and your practice.", `
+    ${authError(query)}
+    ${googleButton(next)}
     <form id="login-form" class="form" novalidate>
       <label for="email">Email</label>
       <input id="email" type="email" autocomplete="username" required placeholder="you@college.edu" />
@@ -225,39 +277,40 @@ export async function login(view, _p, query) {
       <input id="password" type="password" autocomplete="current-password" required />
       <p class="error" id="err" role="alert"></p>
       <button class="btn block lg" type="submit">Sign in</button>
-      ${state.demo ? "" : `<p class="hint" style="margin-top:16px">New here? <a href="/signup">Create a student account</a></p>`}
-      ${state.demo ? `<div class="demo-box"><p>Or look around as a student, no account needed:</p><div class="demo-btns one">
-        <button type="button" class="ghost" data-demo="student">${icon("user")} Open the student view</button></div></div>` : ""}
-    </form>`);
-  const submit = async (email, password) => {
-    $("#err").textContent = "";
-    try {
-      const res = await api("/api/auth/login", { method: "POST", body: { email, password } });
-      state.user = res.user;
-      toast(`Signed in as ${res.user.name.split(" ")[0]}`, "ok");
-      window.__nav(nextPath(query) || homePath(), { replace: true });
-    } catch (e) {
-      $("#err").textContent = e.status === 401 ? "That email and password don't match. Check both and try again." : e.message;
-    }
-  };
-  $("#login-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    submit($("#email").value.trim(), $("#password").value);
-  });
-  view.querySelectorAll("[data-demo]").forEach((b) => b.addEventListener("click", () => {
-    const who = b.dataset.demo;
-    submit(`${who}@autograder.local`, `${who}123`);
-  }));
-  $("#email").focus();
+      ${state.signupOpen ? `<p class="hint center" style="margin-top:16px">New here? <a href="/signup">Create an account</a></p>` : ""}
+    </form>
+    <p class="auth-switch"><a href="/login/instructor">${icon("graduation")} I'm an instructor</a></p>`);
+  bindPasswordForm(view, query);
 }
 
-export async function signup(view) {
-  if (state.demo) {
-    authLayout(view, "Sign-up is off on this demo", "This public demo has ready-made accounts instead.",
-      `<div class="row-btns" style="margin-top:18px"><a class="btn lg" href="/login">Open the demo accounts</a></div>`);
+export async function instructorLogin(view, _p, query) {
+  authLayout(view, "Instructor sign-in", "The class overview, the gradebook and every student's work.", `
+    ${authError(query)}
+    <form id="login-form" class="form" novalidate>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" required placeholder="you@college.edu" />
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required />
+      <p class="error" id="err" role="alert"></p>
+      <button class="btn block lg" type="submit">Sign in</button>
+    </form>
+    <p class="hint center" style="margin-top:16px">Instructor access is given by an existing instructor.
+      It can't be created here.</p>
+    <p class="auth-switch"><a href="/login">${icon("user")} I'm a student</a></p>`);
+  bindPasswordForm(view, query);
+}
+
+export async function signup(view, _p, query) {
+  if (!state.signupOpen) {
+    authLayout(view, "Accounts are not open here", state.google
+      ? `Sign in with your college Google account instead.`
+      : "Ask your instructor to add you to the class.",
+      `${googleButton("")}<div class="row-btns" style="margin-top:4px"><a class="ghost block" href="/login">Back to sign-in</a></div>`);
     return;
   }
   authLayout(view, "Create your account", "Join your class to submit assignments and track your progress.", `
+    ${authError(query)}
+    ${googleButton("")}
     <form id="signup-form" class="form" novalidate>
       <label for="name">Full name</label>
       <input id="name" autocomplete="name" required minlength="2" placeholder="Aarav Sharma" />
@@ -270,7 +323,7 @@ export async function signup(view) {
       ${state.signupCode ? `<label for="code">Class join code</label><input id="code" required autocomplete="off" placeholder="Your instructor shares this" />` : ""}
       <p class="error" id="err" role="alert"></p>
       <button class="btn block lg" type="submit">Create account</button>
-      <p class="hint" style="margin-top:16px">Already have an account? <a href="/login">Sign in</a></p>
+      <p class="hint center" style="margin-top:16px">Already have an account? <a href="/login">Sign in</a></p>
     </form>`);
   $("#signup-form").addEventListener("submit", async (e) => {
     e.preventDefault();
