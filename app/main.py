@@ -268,7 +268,7 @@ def build_request(body: GradeIn) -> GradeRequest:
 
 
 async def _submit(body: GradeIn, user: dict | None = None, assignment_id: int | None = None,
-                  check_active: bool = True) -> JSONResponse:
+                  check_active: bool = True, is_late: bool = False) -> JSONResponse:
     assert manager is not None
     req = build_request(body)
     if user and check_active and \
@@ -278,7 +278,7 @@ async def _submit(body: GradeIn, user: dict | None = None, assignment_id: int | 
     job, deduped = manager.submit(req)
     submission_id = None
     if user:
-        submission_id = await asyncio.to_thread(platform_api.record_submission, user["id"], assignment_id, job)
+        submission_id = await asyncio.to_thread(platform_api.record_submission, user["id"], assignment_id, job, is_late)
     return JSONResponse(status_code=202, content={
         "job_id": job.id, "status": job.status, "deduplicated": deduped, "submission_id": submission_id,
         "links": {"self": f"/api/jobs/{job.id}", "events": f"/api/jobs/{job.id}/events",
@@ -361,9 +361,9 @@ async def submit_assignment(assignment_id: int, body: SubmitIn, request: Request
     user = await asyncio.to_thread(session_user, request)
     if not user:
         raise HTTPException(status_code=401, detail="login required")
-    a = await asyncio.to_thread(platform_api.get_assignment, assignment_id)
+    a, is_late = await asyncio.to_thread(platform_api.prepare_assignment_submission, assignment_id, user["id"])
     return await _submit(_assignment_grade_in(a, body.repo_url, body.ref, body.dockerfile_text, body.force),
-                         user, assignment_id)
+                         user, assignment_id, is_late=is_late)
 
 
 @app.post("/api/instructor/submissions/{submission_id}/regrade", status_code=202)
@@ -541,13 +541,12 @@ async def job_report_file(job_id: str, fmt: str):
     return resp
 
 
-@app.get("/api/health")
-async def health():
+async def _health_payload() -> dict:
     db = get_db()
     try:
         db_ms = await asyncio.to_thread(db.ping_ms)
         db_ok = True
-    except Exception:  # noqa: BLE001 - health must answer even when the DB is down
+    except Exception:  # noqa: BLE001 - diagnostics must still answer when the DB is down
         db_ms, db_ok = None, False
     return {"status": "ok" if db_ok else "degraded", "version": __version__, "instance": config.INSTANCE_ID,
             "llm_mode": llm_enabled(), "llm_provider": provider_label(),
@@ -555,6 +554,17 @@ async def health():
             "docker_available": config.docker_available(), "max_concurrent_jobs": config.MAX_CONCURRENT_JOBS,
             "auth_required": bool(API_TOKEN), "login_required": config.REQUIRE_LOGIN,
             "database": {"engine": db.engine_name, "ok": db_ok, "ping_ms": db_ms}}
+
+
+@app.get("/api/health")
+async def health():
+    return await _health_payload()
+
+
+@app.get("/api/ready")
+async def readiness():
+    payload = await _health_payload()
+    return JSONResponse(status_code=200 if payload["database"]["ok"] else 503, content=payload)
 
 
 @app.get("/api/metrics")

@@ -147,8 +147,15 @@ export async function dashboard(view) {
 }
 
 // ------------------------------------------------------------------------------------ assignments
+const ASSIGNMENT_STATUS = {
+  draft: ["Draft", ""], published: ["Published", "ok"], closed: ["Closed", "bad"],
+};
+const assignmentStatus = (status) => {
+  const [label, cls] = ASSIGNMENT_STATUS[status] || ASSIGNMENT_STATUS.published;
+  return `<span class="chip ${cls}">${label}</span>`;
+};
+
 function toLocalInput(iso) {
-  // <input type="datetime-local"> works in local time without an offset; the API stores UTC.
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -169,11 +176,20 @@ function assignmentForm(a = null) {
     <div class="field"><label for="a-desc">Description <span class="muted">(shown to students)</span></label><textarea id="a-desc" rows="3">${esc(a?.description || "")}</textarea></div>
     <div class="field"><label for="a-notes">What will be checked <span class="muted">(separate items with ; and students see a checklist)</span></label>
       <textarea id="a-notes" rows="3" placeholder="e.g. docker-compose with nginx in front of 2 API replicas; PostgreSQL on a private network; integration tests in CI">${esc(a?.rubric_notes || "")}</textarea></div>
-    <fieldset><legend>How much each area counts <span class="muted">(0% skips it)</span></legend>
-      ${weightFields("aw", w)}</fieldset>
-    <div class="field"><label for="a-due">Deadline <span class="muted">(your local time)</span></label><input id="a-due" type="datetime-local" value="${esc(due)}" /></div>
+    <fieldset><legend>How much each area counts <span class="muted">(0% skips it)</span></legend>${weightFields("aw", w)}</fieldset>
+    <div class="grid2">
+      <div class="field"><label for="a-status">Status</label><select id="a-status">${Object.entries(ASSIGNMENT_STATUS).map(([key, value]) =>
+        `<option value="${key}"${(a?.status || "published") === key ? " selected" : ""}>${value[0]}</option>`).join("")}</select>
+        <span class="hint">Drafts are hidden. Closed assignments stop submissions.</span></div>
+      <div class="field"><label for="a-due">Deadline <span class="muted">(your local time)</span></label><input id="a-due" type="datetime-local" value="${esc(due)}" /></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label for="a-max">Maximum attempts <span class="muted">(blank = unlimited)</span></label>
+        <input id="a-max" type="number" min="1" max="100" value="${a?.max_attempts ?? ""}" placeholder="Unlimited" /></div>
+      <label class="check"><input id="a-late" type="checkbox"${a == null || a.allow_late ? " checked" : ""} /> Allow late submissions</label>
+    </div>
     <p id="a-err" class="error" role="alert"></p>
-    <div class="row-btns"><button class="btn" type="submit" data-write>${a ? "Save changes" : "Publish assignment"}</button>
+    <div class="row-btns"><button class="btn" type="submit" data-write>${a ? "Save changes" : "Create assignment"}</button>
       ${a ? `<button class="ghost" type="button" id="a-cancel">Cancel</button>` : ""}</div>
   </form>`;
 }
@@ -183,23 +199,35 @@ export async function assignments(view, _p, query) {
   let editing = null;
   const load = async () => {
     rows = await api("/api/assignments");
-    $("#a-list").innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Title</th><th>Due</th><th class="num">Students</th><th></th></tr></thead><tbody>
+    $("#a-list").innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Title</th><th>Status</th><th>Due</th><th class="num">Students</th><th></th></tr></thead><tbody>
       ${rows.map((a) => `<tr class="${editing === a.id ? "flagged" : ""}"><td><a href="/instructor/assignment/${a.id}"><b>${esc(a.title)}</b></a><span class="sub-l">${esc(TRACKS[a.track] || a.track)}</span></td>
+        <td>${assignmentStatus(a.status)}${a.max_attempts ? `<span class="sub-l">${a.max_attempts} attempts</span>` : ""}</td>
         <td>${a.due_at ? esc(fmtDate(a.due_at, true)) : `<span class="muted">No deadline</span>`}</td><td class="num">${a.class_stats.students}</td>
         <td class="actions"><button class="ghost sm" data-edit="${a.id}" type="button" data-write>Edit</button>
+          <button class="ghost sm" data-dup="${a.id}" type="button" data-write>Duplicate</button>
           <button class="ghost sm danger" data-del="${a.id}" type="button" data-write>Delete</button></td></tr>`).join("")}</tbody></table></div>`
       : emptyState("No assignments yet", "Publish the first one with the form.", "", "book");
     window.__applyReadOnly?.(view);
     $("#a-list").querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
       edit(rows.find((r) => String(r.id) === b.dataset.edit));
     }));
+    $("#a-list").querySelectorAll("[data-dup]").forEach((b) => b.addEventListener("click", async () => {
+      try {
+        const copy = await api(`/api/assignments/${b.dataset.dup}/duplicate`, { method: "POST" });
+        toast(`Created draft: ${copy.title}`, "ok");
+        await load();
+        edit(copy);
+      } catch (err) { toast(err.message, "error"); }
+    }));
     $("#a-list").querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
       const a = rows.find((r) => String(r.id) === b.dataset.del);
-      if (!confirm(`Delete "${a.title}" and all of its submissions? This can't be undone.`)) return;
-      await api(`/api/assignments/${a.id}`, { method: "DELETE" });
-      toast("Assignment deleted");
-      if (editing === a.id) edit(null);
-      load();
+      if (!confirm(`Delete "${a.title}"? Assignments with submissions must be closed instead.`)) return;
+      try {
+        await api(`/api/assignments/${a.id}`, { method: "DELETE" });
+        toast("Assignment deleted");
+        if (editing === a.id) edit(null);
+        load();
+      } catch (err) { toast(err.message, "error"); }
     }));
   };
   const edit = (a = null) => {
@@ -216,11 +244,13 @@ export async function assignments(view, _p, query) {
         rubric_notes: $("#a-notes").value.trim(),
         weights: readWeights("aw"),
         due_at: due ? new Date(due).toISOString() : null,
+        status: $("#a-status").value, allow_late: $("#a-late").checked,
+        max_attempts: $("#a-max").value ? parseInt($("#a-max").value, 10) : null,
       };
       try {
         const id = $("#a-id").value;
         await api(id ? `/api/assignments/${id}` : "/api/assignments", { method: id ? "PUT" : "POST", body });
-        toast(id ? "Changes saved" : "Assignment published", "ok");
+        toast(id ? "Changes saved" : "Assignment created", "ok");
         edit(null);
         load();
       } catch (err) { $("#a-err").textContent = err.message; }
@@ -229,7 +259,7 @@ export async function assignments(view, _p, query) {
     if (a) $("#a-form-host").scrollIntoView({ behavior: "smooth", block: "start" });
   };
   view.innerHTML = `${pageHeader(`<a href="/instructor/dashboard">Overview</a>`, "Assignments", "The weights and checklist you set here decide how every submission is scored.")}
-    <section class="grid-1-1"><div class="panel" id="a-form-host"></div><div class="panel"><h2>${icon("book")} Published</h2><div id="a-list"></div></div></section>`;
+    <section class="grid-1-1"><div class="panel" id="a-form-host"></div><div class="panel"><h2>${icon("book")} All assignments</h2><div id="a-list"></div></div></section>`;
   edit(null);
   await load();
   const want = query?.get("edit");

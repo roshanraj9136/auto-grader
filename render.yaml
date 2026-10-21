@@ -16,7 +16,7 @@ services:
     runtime: docker
     plan: free
     region: singapore            # closest Render region to India
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     autoDeployTrigger: commit    # every push to main redeploys
     envVars:
       - key: PORT                # Render routes traffic to this port (the Dockerfile serves on 8000)

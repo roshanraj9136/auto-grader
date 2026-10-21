@@ -37,6 +37,7 @@ log = logging.getLogger("autograder.api")
 router = APIRouter()
 DIMENSIONS = list(config.DEFAULT_WEIGHTS)
 TRACKS = ["frontend", "backend", "database", "networking", "devops", "security", "fullstack"]
+ASSIGNMENT_STATUSES = ["draft", "published", "closed"]
 GRADES = ["A", "A-", "B", "B-", "C", "C-", "D", "F"]
 _EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 MAX_ACTIVE_PER_USER = 3
@@ -46,16 +47,17 @@ MAX_ACTIVE_PER_USER = 3
 STALE_ACTIVE_S = 30 * 60  # longer than any job can run (clone + docker build + agents + judge deadlines)
 
 
-def record_submission(user_id: int, assignment_id: int | None, job: Job) -> int:
+def record_submission(user_id: int, assignment_id: int | None, job: Job, is_late: bool = False) -> int:
     db = get_db()
     existing = db.one("SELECT id FROM submissions WHERE user_id = ? AND job_id = ? AND "
                       "COALESCE(assignment_id, 0) = COALESCE(?, 0)", (user_id, job.id, assignment_id))
     if existing:  # identical in-flight request (single-flight): one row per user + job
         return existing["id"]
     sid = db.insert(
-        "INSERT INTO submissions (user_id, assignment_id, job_id, repo_url, ref, status, instance, created_at) "
-        "VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)",
-        (user_id, assignment_id, job.id, job.request.repo_url, job.request.ref, config.INSTANCE_ID, now_iso()))
+        "INSERT INTO submissions (user_id, assignment_id, job_id, repo_url, ref, status, instance, is_late, created_at) "
+        "VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?)",
+        (user_id, assignment_id, job.id, job.request.repo_url, job.request.ref, config.INSTANCE_ID,
+         1 if is_late else 0, now_iso()))
     if job.status != "queued":  # it moved on (running / finished, e.g. cache hit) before the row existed
         on_job_event(job)
     return sid
@@ -205,8 +207,8 @@ def _sub_out(r: dict) -> dict:
             "assignment_title": r.get("assignment_title"), "repo_url": r["repo_url"], "ref": r["ref"],
             "status": r["status"], "final_score": r["final_score"], "grade": r["grade"], "dims": loads(r["dims"], {}),
             "details": loads(r["details"], {}), "total_ms": r["total_ms"], "cache_hit": bool(r["cache_hit"]),
-            "error": r["error"], "created_at": r["created_at"], "finished_at": r["finished_at"],
-            "student": r.get("student_name"), "entry_no": r.get("entry_no")}
+            "is_late": bool(r.get("is_late", 0)), "error": r["error"], "created_at": r["created_at"],
+            "finished_at": r["finished_at"], "student": r.get("student_name"), "entry_no": r.get("entry_no")}
 
 
 def demo_student() -> dict | None:
@@ -264,8 +266,13 @@ def with_overrides(subs: list[dict]) -> list[dict]:
 
 
 def _assignment_out(r: dict) -> dict:
+    status = r.get("status") or "published"
+    allow_late = bool(r.get("allow_late", 1))
+    past_due = bool(r["due_at"] and r["due_at"] < now_iso())
     return {"id": r["id"], "title": r["title"], "description": r["description"], "track": r["track"],
             "weights": loads(r["weights"], {}), "rubric_notes": r["rubric_notes"], "due_at": r["due_at"],
+            "status": status, "allow_late": allow_late, "max_attempts": r.get("max_attempts"),
+            "is_past_due": past_due, "accepting_submissions": status == "published" and (allow_late or not past_due),
             "created_at": r["created_at"]}
 
 
@@ -489,15 +496,23 @@ class AssignmentIn(BaseModel):
     weights: dict[str, float] | None = None
     rubric_notes: str = Field(default="", max_length=config.MAX_RUBRIC_CHARS)
     due_at: str | None = Field(default=None, max_length=40)
+    status: str = "published"
+    allow_late: bool = True
+    max_attempts: int | None = Field(default=None, ge=1, le=100)
 
 
 def _clean_assignment(body: AssignmentIn) -> tuple:
     if body.track not in TRACKS:
         raise HTTPException(status_code=422, detail=f"track must be one of {TRACKS}")
+    if body.status not in ASSIGNMENT_STATUSES:
+        raise HTTPException(status_code=422, detail=f"status must be one of {ASSIGNMENT_STATUSES}")
     raw = body.weights or config.DEFAULT_WEIGHTS
     if set(raw) - set(DIMENSIONS):
         raise HTTPException(status_code=422, detail=f"unknown rubric dimensions: {sorted(set(raw) - set(DIMENSIONS))}")
-    weights = {k: float(v) for k, v in raw.items() if float(v) > 0}
+    try:
+        weights = {k: float(v) for k, v in raw.items() if float(v) > 0}
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="rubric weights must be numbers") from exc
     if not weights:
         raise HTTPException(status_code=422, detail="at least one rubric weight must be > 0")
     total = sum(weights.values())
@@ -505,16 +520,45 @@ def _clean_assignment(body: AssignmentIn) -> tuple:
     due = None
     if body.due_at:
         try:
-            due = to_utc_iso(body.due_at)  # stored as UTC so text comparison is chronological
+            due = to_utc_iso(body.due_at)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="due_at must be an ISO date, e.g. 2026-11-01T23:59:00Z") from exc
-    return body.title.strip(), body.description.strip(), body.track, json.dumps(weights), body.rubric_notes.strip(), due
+    return (body.title.strip(), body.description.strip(), body.track, json.dumps(weights), body.rubric_notes.strip(),
+            due, body.status, 1 if body.allow_late else 0, body.max_attempts)
+
+
+def _submission_access(a: dict, user_id: int) -> dict:
+    attempts = get_db().scalar("SELECT COUNT(*) AS n FROM submissions WHERE user_id = ? AND assignment_id = ?",
+                               (user_id, a["id"])) or 0
+    reason = None
+    if a["status"] == "draft":
+        reason = "This assignment is still a draft."
+    elif a["status"] == "closed":
+        reason = "This assignment has been closed by the instructor."
+    elif a["is_past_due"] and not a["allow_late"]:
+        reason = "The deadline has passed and late submissions are disabled."
+    elif a["max_attempts"] is not None and attempts >= a["max_attempts"]:
+        reason = f"You have used all {a['max_attempts']} allowed attempts."
+    return {"allowed": reason is None, "reason": reason, "attempts": attempts,
+            "remaining_attempts": max(0, a["max_attempts"] - attempts) if a["max_attempts"] is not None else None,
+            "is_late": bool(a["due_at"] and a["is_past_due"])}
+
+
+def prepare_assignment_submission(assignment_id: int, user_id: int) -> tuple[dict, bool]:
+    a = get_assignment(assignment_id)
+    access = _submission_access(a, user_id)
+    if not access["allowed"]:
+        raise HTTPException(status_code=409, detail=access["reason"])
+    return a, access["is_late"]
 
 
 @router.get("/api/assignments")
 def list_assignments(user: dict | None = Depends(optional_user)):
     db = get_db()
-    rows = [_assignment_out(r) for r in db.all("SELECT * FROM assignments ORDER BY COALESCE(due_at, created_at), id")]
+    where = "" if user and user["role"] == "instructor" else "WHERE status <> 'draft'"
+    rows = [_assignment_out(r) for r in db.all(
+        f"SELECT * FROM assignments {where} ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, "
+        "COALESCE(due_at, created_at), id")]
     stats = {r["assignment_id"]: r for r in db.all(
         "SELECT s.assignment_id, COUNT(*) AS submissions, COUNT(DISTINCT s.user_id) AS students, MAX(s.final_score) AS top "
         "FROM submissions s JOIN users u ON u.id = s.user_id AND u.role = 'student' "
@@ -531,42 +575,64 @@ def list_assignments(user: dict | None = Depends(optional_user)):
         s = stats.get(a["id"], {})
         a["class_stats"] = {"submissions": s.get("submissions", 0), "students": s.get("students", 0), "top": s.get("top")}
         m = mine.get(a["id"])
-        a["mine"] = {"attempts": m["attempts"], "best": m["best"], "last_at": m["last_at"]} if m else None
+        if m:
+            a["mine"] = {"attempts": m["attempts"], "best": m["best"], "last_at": m["last_at"],
+                         "remaining_attempts": max(0, a["max_attempts"] - m["attempts"])
+                         if a["max_attempts"] is not None else None}
+        else:
+            a["mine"] = None
     return rows
 
 
 @router.get("/api/assignments/{assignment_id}")
 def assignment_detail(assignment_id: int, user: dict | None = Depends(optional_user)):
     a = get_assignment(assignment_id)
+    if a["status"] == "draft" and (not user or user["role"] != "instructor"):
+        raise HTTPException(status_code=404, detail="assignment not found")
     if user:
         a["submissions"] = with_overrides([_sub_out(r) for r in get_db().all(
             "SELECT * FROM submissions WHERE user_id = ? AND assignment_id = ? ORDER BY created_at DESC, id DESC LIMIT 50",
             (user["id"], assignment_id))])
+        a["submission_access"] = _submission_access(a, user["id"])
     return a
 
 
 @router.post("/api/assignments", status_code=201)
 def create_assignment(body: AssignmentIn, user: dict = Depends(require_instructor_write)):
     vals = _clean_assignment(body)
-    aid = get_db().insert("INSERT INTO assignments (title, description, track, weights, rubric_notes, due_at, created_by, "
-                          "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (*vals, user["id"], now_iso()))
+    aid = get_db().insert(
+        "INSERT INTO assignments (title, description, track, weights, rubric_notes, due_at, status, allow_late, "
+        "max_attempts, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (*vals, user["id"], now_iso()))
     return get_assignment(aid)
 
 
 @router.put("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: int, body: AssignmentIn, _: dict = Depends(require_instructor_write)):
     get_assignment(assignment_id)
-    get_db().run("UPDATE assignments SET title = ?, description = ?, track = ?, weights = ?, rubric_notes = ?, due_at = ? "
-                 "WHERE id = ?", (*_clean_assignment(body), assignment_id))
+    get_db().run("UPDATE assignments SET title = ?, description = ?, track = ?, weights = ?, rubric_notes = ?, due_at = ?, "
+                 "status = ?, allow_late = ?, max_attempts = ? WHERE id = ?", (*_clean_assignment(body), assignment_id))
     return get_assignment(assignment_id)
+
+
+@router.post("/api/assignments/{assignment_id}/duplicate", status_code=201)
+def duplicate_assignment(assignment_id: int, user: dict = Depends(require_instructor_write)):
+    source = get_assignment(assignment_id)
+    aid = get_db().insert(
+        "INSERT INTO assignments (title, description, track, weights, rubric_notes, due_at, status, allow_late, "
+        "max_attempts, created_by, created_at) VALUES (?, ?, ?, ?, ?, NULL, 'draft', ?, ?, ?, ?)",
+        (f"{source['title']} (copy)"[:120], source["description"], source["track"], json.dumps(source["weights"]),
+         source["rubric_notes"], 1 if source["allow_late"] else 0, source["max_attempts"], user["id"], now_iso()))
+    return get_assignment(aid)
 
 
 @router.delete("/api/assignments/{assignment_id}")
 def delete_assignment(assignment_id: int, _: dict = Depends(require_instructor_write)):
-    get_assignment(assignment_id)
-    with get_db().tx() as t:
-        t.run("DELETE FROM submissions WHERE assignment_id = ?", (assignment_id,))
-        t.run("DELETE FROM assignments WHERE id = ?", (assignment_id,))
+    a = get_assignment(assignment_id)
+    submissions = get_db().scalar("SELECT COUNT(*) AS n FROM submissions WHERE assignment_id = ?", (assignment_id,)) or 0
+    if submissions:
+        raise HTTPException(status_code=409, detail=f"'{a['title']}' has {submissions} submission(s). Close it instead so grades are preserved.")
+    get_db().run("DELETE FROM assignments WHERE id = ?", (assignment_id,))
     return {"ok": True}
 
 

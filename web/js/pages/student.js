@@ -5,6 +5,7 @@ import {
 import { bindDockerfileUpload, liveJob, priorityTitles, readRepoFields, repoFields } from "./grader.js";
 
 const TRACK_ICON = { frontend: "code", backend: "layers", database: "database", networking: "network", devops: "box", security: "shield", fullstack: "sparkles" };
+const assignmentStatusChip = (a) => a.status === "closed" ? `<span class="chip bad">Closed</span>` : "";
 
 function dueChip(iso) {
   if (!iso) return `<span class="chip">${icon("calendar")} No deadline</span>`;
@@ -99,7 +100,7 @@ export async function dashboard(view) {
   const d = await api("/api/student/dashboard");
   const s = d.stats;
   const first = d.user.name.split(" ")[0];
-  const isOpen = (a) => !a.due_at || new Date(a.due_at) > new Date();
+  const isOpen = (a) => a.accepting_submissions;
   const open = d.assignments.filter((a) => !a.mine && isOpen(a));
   const next = [...open].sort(byDue)[0];
   const improve = next ? null : d.assignments.filter((a) => a.mine && a.mine.best != null && isOpen(a))
@@ -158,20 +159,20 @@ export async function dashboard(view) {
 export async function assignments(view) {
   const rows = await api("/api/assignments");
   const isInstructor = state.user?.role === "instructor";
-  const isOpen = (a) => !a.due_at || new Date(a.due_at) > new Date();
+  const isOpen = (a) => a.accepting_submissions;
   // To do first (soonest deadline first), then the ones you've submitted, then closed ones.
   const rank = (a) => (isOpen(a) ? (a.mine ? 1 : 0) : 2);
   const sorted = [...rows].sort((a, b) => rank(a) - rank(b) || byDue(a, b));
-  view.innerHTML = `${pageHeader("", "Assignments", "Each one lists exactly what will be checked. Submit as many times as you like: your best score counts.",
+  view.innerHTML = `${pageHeader("", "Assignments", "Each one lists exactly what will be checked. Your instructor controls deadlines and attempt limits; your best score counts.",
       isInstructor ? `<a class="btn" href="/instructor/assignments">${icon("edit")} Manage assignments</a>` : "")}
     ${rows.length ? `<section class="cards">${sorted.map((a) => `<article class="card a-card${!a.mine && isOpen(a) ? " todo" : ""}">
-      <div class="card-top"><span class="chip track">${icon(TRACK_ICON[a.track] || "book")} ${esc(TRACKS[a.track] || a.track)}</span>${dueChip(a.due_at)}</div>
+      <div class="card-top"><span class="chip track">${icon(TRACK_ICON[a.track] || "book")} ${esc(TRACKS[a.track] || a.track)}</span><div class="chips">${assignmentStatusChip(a)}${dueChip(a.due_at)}${a.max_attempts != null ? `<span class="chip">${a.mine?.remaining_attempts ?? a.max_attempts} tries left</span>` : ""}</div></div>
       <h2><a href="/student/assignment/${a.id}">${esc(a.title)}</a></h2>
       <p>${esc(a.description)}</p>
       <div class="card-foot">
         ${a.mine ? `<span class="a-best">Best ${gradeBadge(a.mine.best, "")} after ${a.mine.attempts} ${a.mine.attempts > 1 ? "tries" : "try"}</span>`
-          : `<span class="hint">${isOpen(a) ? "Not submitted yet" : "You didn't submit this one"}</span>`}
-        <a class="${a.mine ? "ghost" : "btn"} sm" href="/student/assignment/${a.id}">${a.mine ? "Improve" : "Start"}</a></div>
+          : `<span class="hint">${isOpen(a) ? "Not submitted yet" : "Not accepting submissions"}</span>`}
+        <a class="${a.mine || !isOpen(a) ? "ghost" : "btn"} sm" href="/student/assignment/${a.id}">${a.mine ? "Review" : isOpen(a) ? "Start" : "View"}</a></div>
     </article>`).join("")}</section>`
       : `<section class="panel">${emptyState("No assignments yet", "Your instructor hasn't published any assignments. The labs are open in the meantime.", `<a class="btn" href="/labs">Open the labs</a>`, "book")}</section>`}`;
 }
@@ -197,7 +198,7 @@ export async function assignment(view, { id }) {
   // An instructor-adjusted grade is the grade for this assignment, even if a later attempt scored higher.
   const best = subs.find((s) => s.override && s.status === "done")
     || subs.filter((s) => s.final_score != null).sort((x, y) => y.final_score - x.final_score)[0];
-  const closed = a.due_at && new Date(a.due_at) < new Date();
+  const access = a.submission_access || { allowed: true, reason: null, remaining_attempts: null, is_late: false };
   view.innerHTML = `
   ${pageHeader(`<a href="/student/assignments">Assignments</a> / ${esc(TRACKS[a.track] || a.track)}`, esc(a.title),
     `${dueChip(a.due_at)} ${a.due_at ? `<span class="hint">${esc(fmtDate(a.due_at, true))}</span>` : ""}`,
@@ -209,18 +210,20 @@ export async function assignment(view, { id }) {
       </div>
       <div class="submit-card" id="submit-card">
         <h2>${icon("upload")} ${best ? "Submit an improved version" : "Submit your project"}</h2>
-        ${closed ? `<div class="banner warn">${icon("alert")}<span>The deadline has passed. You can still submit, and late work is marked with its date.</span></div>` : ""}
-        <form id="submit-form" class="form" novalidate>
+        ${!access.allowed ? `<div class="banner warn">${icon("alert")}<span>${esc(access.reason || "This assignment is not accepting submissions.")}</span></div>`
+          : access.is_late ? `<div class="banner warn">${icon("alert")}<span>The deadline has passed. This submission will be marked late.</span></div>` : ""}
+        ${access.allowed ? `<form id="submit-form" class="form" novalidate>
           ${repoFields("s-")}
           <p id="err" class="error" role="alert"></p>
           <button class="btn lg" id="go" type="submit">Submit for feedback</button>
-        </form>
+        </form>` : `<a class="ghost" href="/student/assignments">Back to assignments</a>`}
       </div>
     </div>
     ${rubricPanel(a, best)}
   </section>
   <div id="live-host"></div>
   <section class="panel"><div class="panel-h"><h2>Your attempts</h2><span class="hint">${subs.length ? `${subs.length} so far, best one counts` : ""}</span></div><div id="attempts">${subsTable(subs, { showAssignment: false })}</div></section>`;
+  if (!access.allowed) return null;
   bindDockerfileUpload("s-");
   let stop = null;
   const reloadAttempts = async () => {
