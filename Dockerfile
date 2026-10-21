@@ -29,7 +29,7 @@ USER autograder
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -fsS http://localhost:8000/api/health || exit 1
+  CMD curl -fsS http://localhost:8000/api/ready || exit 1
 # One worker per container on purpose: live job state + SSE fan-out live in-process. Scale out with
 # more replicas behind nginx (sticky routing), not more workers (see docs/ARCHITECTURE.md §9).
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--timeout-graceful-shutdown", "10"]

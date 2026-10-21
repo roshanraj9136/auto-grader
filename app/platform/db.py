@@ -22,6 +22,18 @@ from .. import config
 log = logging.getLogger("autograder.db")
 POOL_SIZE = 10
 
+# Additive migrations upgrade existing SQLite and PostgreSQL deployments in place. PostgreSQL
+# replicas are already serialized by the advisory lock in init_schema.
+MIGRATIONS: list[tuple[str, list[str]]] = [
+    ("001_assignment_controls", [
+        "ALTER TABLE assignments ADD COLUMN status TEXT NOT NULL DEFAULT 'published'",
+        "ALTER TABLE assignments ADD COLUMN allow_late INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE assignments ADD COLUMN max_attempts INTEGER",
+        "ALTER TABLE submissions ADD COLUMN is_late INTEGER NOT NULL DEFAULT 0",
+        "CREATE INDEX IF NOT EXISTS ix_assignments_status_due ON assignments(status, due_at)",
+    ]),
+]
+
 SCHEMA = [
     """CREATE TABLE IF NOT EXISTS users (
         id {pk},
@@ -331,6 +343,15 @@ class Database:
                 t.run("SELECT pg_advisory_xact_lock(4242001)")
             for stmt in SCHEMA:
                 t.run(stmt.format(pk=pk, fk=fk, real=real))
+            t.run("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+            applied = {r["version"] for r in t.all("SELECT version FROM schema_migrations")}
+            for version, statements in MIGRATIONS:
+                if version in applied:
+                    continue
+                log.info("applying database migration %s", version)
+                for stmt in statements:
+                    t.run(stmt)
+                t.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", (version, now_iso()))
             if seed:
                 seed(t)
 
