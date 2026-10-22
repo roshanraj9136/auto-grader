@@ -939,3 +939,83 @@ dialog.adjust h2 { margin-bottom: 6px; }
   .name-list { columns: 1; }
   table.gb .gb-name { min-width: 140px; }
 }
+
+
+
+/* ---------- study flow and instructor command center ---------- */
+[hidden] { display: none !important; }
+.quick-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 var(--gap); }
+.quick-actions a { min-height: 72px; display: flex; align-items: center; gap: 10px; padding: 13px 14px; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 8%, transparent); }
+.quick-actions a:hover { text-decoration: none; border-color: var(--pen); transform: translateY(-1px); }
+.quick-actions a > .i:first-child { width: 34px; height: 34px; padding: 8px; color: var(--pen); background: var(--pen-soft); border-radius: 9px; }
+.quick-actions a > span { flex: 1; min-width: 0; } .quick-actions b, .quick-actions small { display: block; }
+.quick-actions b { font-size: .9rem; } .quick-actions small { color: var(--ink-3); font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quick-actions a > .i:last-child { width: 15px; color: var(--ink-3); }
+.study-primary-grid .panel { height: calc(100% - var(--gap)); }
+.progress-disclosure { margin-bottom: var(--gap); border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--sheet); box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 8%, transparent); overflow: clip; }
+.progress-disclosure > summary { display: flex; align-items: center; gap: 12px; padding: 16px 18px; cursor: pointer; list-style: none; }
+.progress-disclosure > summary::-webkit-details-marker { display: none; } .progress-disclosure > summary:hover { background: var(--fill); }
+.progress-disclosure > summary > .i:first-child { width: 34px; height: 34px; padding: 8px; color: var(--pen); background: var(--pen-soft); border-radius: 9px; }
+.progress-disclosure > summary b, .progress-disclosure > summary small { display: block; } .progress-disclosure > summary small { color: var(--ink-3); font-size: .8rem; }
+.progress-disclosure > summary > .i:last-child { color: var(--ink-3); transition: transform .18s; } .progress-disclosure[open] > summary > .i:last-child { transform: rotate(180deg); }
+.progress-body { padding: var(--gap) var(--gap) 0; border-top: 1px solid var(--rule); background: var(--paper); }
+.assignment-toolbar { align-items: center; } .assignment-toolbar .n { margin-left: 3px; color: var(--ink-3); }
+.assignment-cards .a-card { border-left: 4px solid var(--rule-2); } .assignment-cards .state-todo { border-left-color: var(--amber); }
+.assignment-cards .state-in-progress { border-left-color: var(--pen); } .assignment-cards .state-completed { border-left-color: var(--ga); }
+.status-tag.todo { color: var(--amber); background: var(--amber-soft); } .status-tag.in-progress { color: var(--pen); background: var(--pen-soft); }
+.status-tag.completed { color: var(--ga); background: color-mix(in srgb, var(--ga) 11%, transparent); } .status-tag.closed { color: var(--ink-3); background: var(--fill); }
+
+.guided-tasks .task-list li.current { margin: 4px -8px; padding: 10px 8px; border: 1px solid color-mix(in srgb, var(--pen) 30%, var(--rule)); border-radius: 9px; background: var(--pen-soft); }
+.guided-tasks .task-list li.current .tick { border-color: var(--pen); }
+.lab-next { display: flex; align-items: center; gap: 10px; padding: 11px 12px; margin-top: 12px; border-radius: 10px; background: var(--fill); }
+.lab-next > .i { color: var(--pen); } .lab-next > span { flex: 1; min-width: 0; } .lab-next b, .lab-next small { display: block; }
+.lab-next small { color: var(--ink-3); font-size: .78rem; }
+.next-session { padding: 20px; margin-bottom: var(--gap); border: 1px solid color-mix(in srgb, var(--pen) 32%, var(--rule)); border-radius: var(--r-lg); background: linear-gradient(135deg, var(--pen-soft), var(--sheet)); }
+.next-session-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.next-session-head h2 { margin: 0 0 3px; } .next-session-head p:not(.kicker) { margin: 0; color: var(--ink-2); }
+.session-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.session-steps li { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--rule); border-radius: 10px; background: var(--sheet); }
+.session-steps li > span { width: 28px; height: 28px; display: grid; place-items: center; flex: none; border-radius: 50%; color: #fff; background: var(--pen); font-size: .78rem; font-weight: 760; }
+.session-steps b { display: block; } .session-steps p { margin: 1px 0 0; color: var(--ink-2); font-size: .84rem; }
+
+.command-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: var(--gap); }
+.command-card { --command: var(--pen); min-height: 190px; display: flex; flex-direction: column; gap: 11px; padding: 17px; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-top: 4px solid var(--command); border-radius: 13px; box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 8%, transparent); }
+.command-card:hover { text-decoration: none; border-color: var(--command); transform: translateY(-2px); box-shadow: var(--float); }
+.command-card.monitor { --command: var(--gb); } .command-card.support { --command: var(--amber); } .command-card.export { --command: var(--ga); }
+.command-card > .i { width: 40px; height: 40px; padding: 10px; color: var(--command); background: color-mix(in srgb, var(--command) 11%, transparent); border-radius: 10px; }
+.command-card > span { flex: 1; } .command-card small, .command-card b, .command-card em { display: block; }
+.command-card small { color: var(--command); font-size: .68rem; font-weight: 760; letter-spacing: .1em; }
+.command-card b { margin: 3px 0 5px; font-size: 1rem; } .command-card em { color: var(--ink-2); font-size: .82rem; font-style: normal; }
+.command-card strong { display: flex; align-items: center; gap: 5px; color: var(--command); font-size: .8rem; }
+.command-card strong .i { width: 15px; }
+.assignment-editor { scroll-margin-top: 76px; border-color: color-mix(in srgb, var(--pen) 30%, var(--rule)); }
+.management-actions { display: flex; justify-content: flex-end; align-items: flex-start; gap: 6px; white-space: normal !important; } td.actions.management-actions > * { margin-left: 0; }
+.action-menu { display: inline-block; text-align: left; } .action-menu > summary { list-style: none; } .action-menu > summary::-webkit-details-marker { display: none; }
+.action-menu[open] > summary .i { transform: rotate(180deg); }
+.action-menu-pop { min-width: 190px; display: flex; flex-direction: column; gap: 2px; padding: 6px; margin-top: 5px; border: 1px solid var(--rule); border-radius: 9px; background: var(--fill); }
+.action-menu-pop button { min-height: 38px; width: 100%; display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 0; border-radius: 7px; color: var(--ink); background: transparent; font: inherit; font-size: .8rem; text-align: left; white-space: nowrap; cursor: pointer; }
+.action-menu-pop button:hover { background: var(--sheet); } .action-menu-pop button.danger { color: var(--red); }
+
+@media (max-width: 1100px) {
+  .quick-actions, .command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .command-card { min-height: 165px; }
+}
+@media (max-width: 860px) {
+  .study-primary-grid { grid-template-columns: 1fr; }
+  .progress-body { padding: 14px 14px 0; }
+  .session-steps li { flex-wrap: wrap; } .session-steps li > a { width: 100%; }
+  .management-actions { min-width: 230px; }
+  .mobile-nav a { min-height: 48px; }
+}
+@media (max-width: 600px) {
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .command-grid { grid-template-columns: 1fr; } .command-card { min-height: 0; }
+  .next-session { padding: 16px; } .next-session-head { flex-direction: column; }
+  .lab-next { align-items: flex-start; flex-wrap: wrap; } .lab-next .ghost { width: 100%; }
+}
+@media (max-width: 480px) {
+  .quick-actions, .report-row, .stats { grid-template-columns: 1fr; }
+  .quick-actions a { min-height: 60px; }
+  .progress-disclosure > summary { padding: 14px; }
+  .page-h-actions, .page-h-actions > * { width: 100%; }
+}

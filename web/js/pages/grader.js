@@ -58,7 +58,7 @@ export async function page(view) {
   const teach = state.user?.role === "instructor";
   view.innerHTML = `
   ${teach ? pageHeader("", "Practice grading", "Run any public repository through the grader with your own rubric, for example to try a new assignment before you publish it.")
-    : pageHeader("", "Practice", "Check any repository without submitting it for an assignment. Good for a test run before the real thing.")}
+    : pageHeader("Independent practice", "Project Check", "Check any repository before coursework submission, choose one priority, then improve and recheck it.")}
   <section class="grid-2-1"><div class="panel">
     <form id="grade-form" class="form" novalidate>
       ${repoFields()}
@@ -317,6 +317,13 @@ export async function renderFeedback(host, jobId, sub = null) {
   const langs = Object.entries(s.languages || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k]) => k);
   const repoName = r.repo_url.replace("https://github.com/", "");
   const strongest = [...dims].sort((a, b) => b.final_score - a.final_score)[0];
+  const weakest = [...dims].sort((a, b) => a.final_score - b.final_score)[0];
+  const labForDimension = {
+    code_quality: ["/labs/frontend", "Frontend foundations"], architecture: ["/labs/loadbalancer", "Architecture practice"],
+    security: ["/labs/docker", "Secure containers"], testing: ["/labs/testing", "Testing practice"], devops: ["/labs/docker", "Docker & DevOps"],
+  };
+  const practice = labForDimension[weakest?.dimension] || ["/labs", "Skill Labs"];
+  const firstPriority = priorities[0];
 
   const marks = [...dims].sort((a, b) => (b.weight || 0) - (a.weight || 0)).map((d) => {
     const cls = gradeClass(d.final_score * 10);
@@ -368,6 +375,13 @@ export async function renderFeedback(host, jobId, sub = null) {
       </div>
     </div>
   </section>
+  ${mine ? `<section class="next-session" aria-labelledby="next-session-title"><div class="next-session-head"><div><p class="kicker">Keep your momentum</p>
+      <h2 id="next-session-title">${icon("zap")} Your next study session</h2><p>Do these in order. One focused improvement is better than trying to fix everything at once.</p></div><span class="chip track">About 30 minutes</span></div>
+    <ol class="session-steps">
+      <li><span>1</span><div class="grow"><b>Fix one priority</b><p>${esc(firstPriority?.title || "Choose one concrete improvement from the detailed feedback.")}</p></div><a class="ghost sm" href="#detailed-feedback">View details</a></li>
+      <li><span>2</span><div class="grow"><b>Practise the weak skill</b><p>${esc(DIMENSIONS[weakest?.dimension] || "Focused practice")} scored ${weakest ? esc(weakest.final_score.toFixed(1)) : "–"}/10.</p></div><a class="ghost sm" href="${practice[0]}">${esc(practice[1])}</a></li>
+      <li><span>3</span><div class="grow"><b>Apply and measure</b><p>Make the change, then check the new version to see what improved.</p></div><a class="btn sm" href="${sub?.assignment_id ? `/student/assignment/${esc(sub.assignment_id)}` : "/grader"}">${sub?.assignment_id ? "Improve submission" : "Check again"}</a></li>
+    </ol></section>` : ""}
   <section class="panel"><div class="panel-h"><h2>Marks by area</h2><span class="hint">out of 10, weighted by the rubric</span></div>
     <div class="table-wrap"><table class="marks"><tbody>${marks}</tbody></table></div></section>
   <section class="grid-1-1">
@@ -380,7 +394,7 @@ export async function renderFeedback(host, jobId, sub = null) {
       ${learn.length ? `<ul class="learn-list">${learn.map((x) => `<li>${icon("book")}<p>${learnLine(x)}</p></li>`).join("")}</ul>`
         : emptyState("Nothing to add", "The reviewers had no extra topics to suggest.", "", "book")}</div>
   </section>
-  <section class="panel"><div class="panel-h"><h2>Detailed feedback</h2><span class="hint">Open an area to see each finding and its fix</span></div>${detail}</section>
+  <section class="panel" id="detailed-feedback"><div class="panel-h"><h2>Detailed feedback</h2><span class="hint">Open an area to see each finding and its fix</span></div>${detail}</section>
   <section class="panel flat"><div class="snapshot">
     <span>${icon("code")} <b>${esc(s.code_files ?? 0)}</b> code files</span>
     <span>${icon("layers")} <b>${esc((s.source_lines ?? 0).toLocaleString())}</b> lines</span>

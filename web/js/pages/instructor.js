@@ -83,12 +83,17 @@ export async function dashboard(view) {
   const active = students.filter((r) => r.submissions).length;
   const low = students.filter((r) => standing(r)[0] === "risk").length;
   const items = attentionItems(d, students);
+  const monitor = [...d.assignments].sort((a, b) => a.completion - b.completion || String(a.due_at || "9999").localeCompare(String(b.due_at || "9999")))[0];
   const FILTERS = [["all", "All", () => true], ["shared", "Shared repo", (s) => s.shared_by > 1], ["failed", "Failed", (s) => s.status === "failed"],
     ["running", "In progress", (s) => s.status === "queued" || s.status === "running"]];
   view.innerHTML = `
-  ${pageHeader("", "Class overview", `${plural(c.students, "student")}, ${plural(c.assignments, "assignment")}. Start with the items marked in red.`,
-    `<a class="btn" href="/instructor/assignments" data-write>${icon("plus")} New assignment</a>
-     <a class="ghost" href="/instructor/gradebook">${icon("list")} Gradebook</a>`)}
+  ${pageHeader("Instructor workspace", "Command Center", `${plural(c.students, "learner")}, ${plural(c.assignments, "assignment")}. Create, monitor, support, or export—then act on the items needing attention.`)}
+  <nav class="command-grid" aria-label="Instructor commands">
+    <a class="command-card create" href="/instructor/assignments?new=1" data-write>${icon("plus")}<span><small>CREATE</small><b>New assignment</b><em>Rubric, deadline, attempt limit, and publishing state.</em></span><strong>Create ${icon("arrowRight")}</strong></a>
+    <a class="command-card monitor" href="${monitor ? `/instructor/assignment/${monitor.id}` : "/instructor/assignments"}">${icon("chart")}<span><small>MONITOR</small><b>${monitor ? esc(monitor.title) : "Assignment activity"}</b><em>${monitor ? `${pct(monitor.completion)} complete · ${monitor.students_submitted} submitted` : "Missing work, grading status, results, and integrity flags."}</em></span><strong>Open monitor ${icon("arrowRight")}</strong></a>
+    <a class="command-card support" href="/instructor/students?show=${low ? "risk" : "none"}">${icon("users")}<span><small>SUPPORT</small><b>${low ? `${plural(low, "learner")} below ${LOW}` : "Learner support"}</b><em>Find inactivity, weak results, and students who have not started.</em></span><strong>Review learners ${icon("arrowRight")}</strong></a>
+    <a class="command-card export" href="/instructor/gradebook">${icon("list")}<span><small>GRADE & EXPORT</small><b>Open gradebook</b><em>Review marks, adjust grades, and download spreadsheet-ready results.</em></span><strong>Open gradebook ${icon("arrowRight")}</strong></a>
+  </nav>
   <section class="ledger" aria-label="Class numbers">
     <div><span>Students active</span><b>${active}<small>of ${c.students}</small></b></div>
     <div><span>Submissions</span><b>${c.submissions}<small>${c.graded} graded${c.active ? `, ${c.active} running` : ""}</small></b></div>
@@ -179,7 +184,7 @@ function assignmentForm(a = null) {
     <fieldset><legend>How much each area counts <span class="muted">(0% skips it)</span></legend>${weightFields("aw", w)}</fieldset>
     <div class="grid2">
       <div class="field"><label for="a-status">Status</label><select id="a-status">${Object.entries(ASSIGNMENT_STATUS).map(([key, value]) =>
-        `<option value="${key}"${(a?.status || "published") === key ? " selected" : ""}>${value[0]}</option>`).join("")}</select>
+        `<option value="${key}"${(a?.status || "draft") === key ? " selected" : ""}>${value[0]}</option>`).join("")}</select>
         <span class="hint">Drafts are hidden. Closed assignments stop submissions.</span></div>
       <div class="field"><label for="a-due">Deadline <span class="muted">(your local time)</span></label><input id="a-due" type="datetime-local" value="${esc(due)}" /></div>
     </div>
@@ -197,74 +202,102 @@ function assignmentForm(a = null) {
 export async function assignments(view, _p, query) {
   let rows = [];
   let editing = null;
-  const load = async () => {
-    rows = await api("/api/assignments");
-    $("#a-list").innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Title</th><th>Status</th><th>Due</th><th class="num">Students</th><th></th></tr></thead><tbody>
-      ${rows.map((a) => `<tr class="${editing === a.id ? "flagged" : ""}"><td><a href="/instructor/assignment/${a.id}"><b>${esc(a.title)}</b></a><span class="sub-l">${esc(TRACKS[a.track] || a.track)}</span></td>
-        <td>${assignmentStatus(a.status)}${a.max_attempts ? `<span class="sub-l">${a.max_attempts} attempts</span>` : ""}</td>
-        <td>${a.due_at ? esc(fmtDate(a.due_at, true)) : `<span class="muted">No deadline</span>`}</td><td class="num">${a.class_stats.students}</td>
-        <td class="actions"><button class="ghost sm" data-edit="${a.id}" type="button" data-write>Edit</button>
-          <button class="ghost sm" data-dup="${a.id}" type="button" data-write>Duplicate</button>
-          <button class="ghost sm danger" data-del="${a.id}" type="button" data-write>Delete</button></td></tr>`).join("")}</tbody></table></div>`
-      : emptyState("No assignments yet", "Publish the first one with the form.", "", "book");
-    window.__applyReadOnly?.(view);
-    $("#a-list").querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
-      edit(rows.find((r) => String(r.id) === b.dataset.edit));
-    }));
-    $("#a-list").querySelectorAll("[data-dup]").forEach((b) => b.addEventListener("click", async () => {
-      try {
-        const copy = await api(`/api/assignments/${b.dataset.dup}/duplicate`, { method: "POST" });
-        toast(`Created draft: ${copy.title}`, "ok");
-        await load();
-        edit(copy);
-      } catch (err) { toast(err.message, "error"); }
-    }));
-    $("#a-list").querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
-      const a = rows.find((r) => String(r.id) === b.dataset.del);
-      if (!confirm(`Delete "${a.title}"? Assignments with submissions must be closed instead.`)) return;
-      try {
-        await api(`/api/assignments/${a.id}`, { method: "DELETE" });
-        toast("Assignment deleted");
-        if (editing === a.id) edit(null);
-        load();
-      } catch (err) { toast(err.message, "error"); }
-    }));
+  let show = "all";
+  view.innerHTML = `${pageHeader(`<a href="/instructor/dashboard">Command Center</a>`, "Coursework", "Create safely, change publishing state in one click, and open focused monitoring for any assignment.",
+      `<button class="btn" id="a-new" type="button" data-write>${icon("plus")} Create assignment</button>
+       <a class="ghost" href="/student/assignments">${icon("user")} Preview student view</a>`)}
+    <section class="panel assignment-editor" id="a-form-host" hidden></section>
+    <section class="panel"><div class="panel-h"><div><p class="kicker">Manage</p><h2>${icon("book")} All coursework</h2></div><span class="hint">Monitor is primary; publishing and other controls are under More.</span></div>
+      <div class="toolbar"><div class="seg" id="a-status-filter" role="group" aria-label="Filter coursework by status"></div>
+        <a class="ghost sm" href="/api/instructor/gradebook.csv" download>${icon("download")} Export CSV</a></div><div id="a-list"></div></section>`;
+
+  const payloadFor = (a, status = a.status) => ({ title: a.title, track: a.track, description: a.description || "",
+    rubric_notes: a.rubric_notes || "", weights: a.weights, due_at: a.due_at || null, status,
+    allow_late: a.allow_late, max_attempts: a.max_attempts ?? null });
+  const closeEditor = () => { editing = null; $("#a-form-host").hidden = true; $("#a-form-host").innerHTML = ""; };
+  const applyFilter = () => {
+    let shown = 0;
+    $("#a-list")?.querySelectorAll("[data-assignment-status]").forEach((row) => {
+      row.hidden = show !== "all" && row.dataset.assignmentStatus !== show;
+      if (!row.hidden) shown += 1;
+    });
+    if ($("#a-list-empty")) $("#a-list-empty").hidden = shown > 0;
   };
+  const setStatus = async (a, status, button) => {
+    button.disabled = true;
+    try {
+      await api(`/api/assignments/${a.id}`, { method: "PUT", body: payloadFor(a, status) });
+      toast(status === "closed" ? "Submissions closed" : "Assignment is now live", "ok");
+      await load();
+    } catch (err) { toast(err.message, "error"); button.disabled = false; }
+  };
+  const renderList = () => {
+    const counts = { all: rows.length, draft: 0, published: 0, closed: 0 };
+    rows.forEach((a) => { counts[a.status] = (counts[a.status] || 0) + 1; });
+    $("#a-status-filter").innerHTML = [["all", "All"], ["published", "Live"], ["draft", "Drafts"], ["closed", "Closed"]].map(([key, label]) =>
+      `<button type="button" data-status-filter="${key}" aria-pressed="${show === key}">${label}<span class="n">${counts[key] || 0}</span></button>`).join("");
+    $("#a-list").innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Assignment</th><th>Status & policy</th><th>Due</th><th class="num">Students</th><th></th></tr></thead><tbody>
+      ${rows.map((a) => {
+        const nextStatus = a.status === "published" ? "closed" : "published";
+        const nextLabel = a.status === "published" ? "Close submissions" : a.status === "closed" ? "Reopen for submissions" : "Publish to students";
+        return `<tr class="${editing === a.id ? "flagged" : ""}" data-assignment-status="${esc(a.status)}"><td><a href="/instructor/assignment/${a.id}"><b>${esc(a.title)}</b></a><span class="sub-l">${esc(TRACKS[a.track] || a.track)}</span></td>
+          <td>${assignmentStatus(a.status)}${a.max_attempts ? `<span class="sub-l">${a.max_attempts} attempts${a.allow_late ? " · late allowed" : " · no late work"}</span>` : `<span class="sub-l">Unlimited attempts${a.allow_late ? " · late allowed" : " · no late work"}</span>`}</td>
+          <td>${a.due_at ? esc(fmtDate(a.due_at, true)) : '<span class="muted">No deadline</span>'}</td><td class="num">${a.class_stats.students}</td>
+          <td class="actions management-actions"><a class="btn sm" href="/instructor/assignment/${a.id}">${icon("chart")} Monitor</a>
+            <details class="action-menu"><summary class="ghost sm">More ${icon("chevronDown")}</summary><div class="action-menu-pop">
+              <button type="button" data-status="${nextStatus}" data-id="${a.id}" data-write>${icon(nextStatus === "closed" ? "x" : "checkCircle")} ${nextLabel}</button>
+              <button type="button" data-edit="${a.id}" data-write>${icon("edit")} Edit settings</button>
+              <button type="button" data-dup="${a.id}" data-write>${icon("plus")} Duplicate as draft</button>
+              <button type="button" class="danger" data-del="${a.id}" data-write>${icon("trash")} Delete</button>
+            </div></details></td></tr>`;
+      }).join("")}</tbody></table></div><div id="a-list-empty" hidden>${emptyState("No coursework in this view", "Choose another status filter.", "", "book")}</div>`
+      : emptyState("No coursework yet", "Create a draft, review it, and publish when ready.", `<button class="btn" id="a-empty-new" type="button" data-write>Create assignment</button>`, "book");
+    $("#a-status-filter").querySelectorAll("[data-status-filter]").forEach((button) => button.addEventListener("click", () => {
+      show = button.dataset.statusFilter;
+      $("#a-status-filter").querySelectorAll("[data-status-filter]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+      applyFilter();
+    }));
+    $("#a-empty-new")?.addEventListener("click", () => edit(null));
+    $("#a-list").querySelectorAll("[data-edit]").forEach((button) => button.addEventListener("click", () => edit(rows.find((a) => String(a.id) === button.dataset.edit))));
+    $("#a-list").querySelectorAll("[data-status]").forEach((button) => button.addEventListener("click", () => {
+      const a = rows.find((row) => String(row.id) === button.dataset.id); if (a) setStatus(a, button.dataset.status, button);
+    }));
+    $("#a-list").querySelectorAll("[data-dup]").forEach((button) => button.addEventListener("click", async () => {
+      try { const copy = await api(`/api/assignments/${button.dataset.dup}/duplicate`, { method: "POST" });
+        toast(`Created draft: ${copy.title}`, "ok"); await load(); edit(copy);
+      } catch (err) { toast(err.message, "error"); }
+    }));
+    $("#a-list").querySelectorAll("[data-del]").forEach((button) => button.addEventListener("click", async () => {
+      const a = rows.find((row) => String(row.id) === button.dataset.del);
+      if (!confirm(`Delete "${a.title}"? Assignments with submissions must be closed instead.`)) return;
+      try { await api(`/api/assignments/${a.id}`, { method: "DELETE" }); toast("Assignment deleted"); closeEditor(); await load(); }
+      catch (err) { toast(err.message, "error"); }
+    }));
+    window.__applyReadOnly?.(view);
+    applyFilter();
+  };
+  const load = async () => { rows = await api("/api/assignments"); renderList(); return rows; };
   const edit = (a = null) => {
     editing = a?.id ?? null;
-    $("#a-form-host").innerHTML = `<h2>${icon(a ? "edit" : "plus")} ${a ? `Edit ${esc(a.title)}` : "New assignment"}</h2>${assignmentForm(a)}`;
-    $("#a-cancel")?.addEventListener("click", () => { edit(null); load(); });
-    bindWeights("aw");
+    const host = $("#a-form-host"); host.hidden = false;
+    host.innerHTML = `<div class="panel-h"><div><p class="kicker">${a ? "Edit" : "Create"}</p><h2>${icon(a ? "edit" : "plus")} ${a ? esc(a.title) : "New assignment"}</h2></div>
+      <button class="ghost sm" id="a-close-editor" type="button">${icon("x")} Close editor</button></div>${assignmentForm(a)}`;
+    $("#a-close-editor").addEventListener("click", closeEditor); $("#a-cancel")?.addEventListener("click", closeEditor); bindWeights("aw");
     $("#a-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      $("#a-err").textContent = "";
-      const due = $("#a-due").value;
-      const body = {
-        title: $("#a-title").value.trim(), track: $("#a-track").value, description: $("#a-desc").value.trim(),
-        rubric_notes: $("#a-notes").value.trim(),
-        weights: readWeights("aw"),
-        due_at: due ? new Date(due).toISOString() : null,
-        status: $("#a-status").value, allow_late: $("#a-late").checked,
-        max_attempts: $("#a-max").value ? parseInt($("#a-max").value, 10) : null,
-      };
-      try {
-        const id = $("#a-id").value;
-        await api(id ? `/api/assignments/${id}` : "/api/assignments", { method: id ? "PUT" : "POST", body });
-        toast(id ? "Changes saved" : "Assignment created", "ok");
-        edit(null);
-        load();
+      e.preventDefault(); $("#a-err").textContent = ""; const due = $("#a-due").value;
+      const body = { title: $("#a-title").value.trim(), track: $("#a-track").value, description: $("#a-desc").value.trim(),
+        rubric_notes: $("#a-notes").value.trim(), weights: readWeights("aw"), due_at: due ? new Date(due).toISOString() : null,
+        status: $("#a-status").value, allow_late: $("#a-late").checked, max_attempts: $("#a-max").value ? parseInt($("#a-max").value, 10) : null };
+      try { const id = $("#a-id").value; await api(id ? `/api/assignments/${id}` : "/api/assignments", { method: id ? "PUT" : "POST", body });
+        toast(id ? "Changes saved" : body.status === "draft" ? "Draft created" : "Assignment created", "ok"); closeEditor(); await load();
       } catch (err) { $("#a-err").textContent = err.message; }
     });
-    window.__applyReadOnly?.(view);
-    if (a) $("#a-form-host").scrollIntoView({ behavior: "smooth", block: "start" });
+    window.__applyReadOnly?.(view); host.scrollIntoView({ behavior: "smooth", block: "start" }); $("#a-title")?.focus({ preventScroll: true });
   };
-  view.innerHTML = `${pageHeader(`<a href="/instructor/dashboard">Overview</a>`, "Assignments", "The weights and checklist you set here decide how every submission is scored.")}
-    <section class="grid-1-1"><div class="panel" id="a-form-host"></div><div class="panel"><h2>${icon("book")} All assignments</h2><div id="a-list"></div></div></section>`;
-  edit(null);
+  $("#a-new").addEventListener("click", () => edit(null));
   await load();
-  const want = query?.get("edit");
-  const target = want && rows.find((r) => String(r.id) === want);
-  if (target) { edit(target); load(); }
+  const want = query?.get("edit"), target = want && rows.find((r) => String(r.id) === want);
+  if (target) edit(target); else if (query?.get("new") === "1") edit(null);
 }
 
 // ------------------------------------------------------------------------------------ students
@@ -317,7 +350,7 @@ export async function students(view, _p, query) {
   let show = groups.some(([k]) => k === query?.get("show")) ? query.get("show") : "all";
   let sort = { key: "status", dir: 1 };
   let q = "";
-  view.innerHTML = `${pageHeader(`<a href="/instructor/dashboard">Overview</a>`, "Students", `${plural(rows.length, "student")} in your class. Sorted so the ones who need help come first.`,
+  view.innerHTML = `${pageHeader(`<a href="/instructor/dashboard">Command Center</a>`, "Learners", `${plural(rows.length, "learner")} in your class. Sorted so the people who need support appear first.`,
       `<a class="ghost" href="/api/instructor/gradebook.csv" download>${icon("download")} Export gradebook</a>`)}
     <section class="panel">${rows.length ? `<div class="toolbar">
         <div class="seg" role="group" aria-label="Filter students">${groups.map(([k, label]) =>
