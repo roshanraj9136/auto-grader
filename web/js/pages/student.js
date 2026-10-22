@@ -27,9 +27,9 @@ const byDue = (a, b) => (a.due_at || "9") < (b.due_at || "9") ? -1 : 1;
 function repoShort(url) { return String(url || "").replace("https://github.com/", ""); }
 
 function feedbackLink(s) {
-  if (s.status === "done") return `<a class="ghost sm" href="/jobs/${esc(s.job_id)}">Feedback</a>`;
-  if (s.status === "failed") return `<span class="hint" title="${esc(s.error)}">Didn't finish</span>`;
-  return `<a class="ghost sm" href="/jobs/${esc(s.job_id)}">Follow</a>`;
+  if (s.status === "done") return `<a class="ghost sm" href="/jobs/${esc(s.job_id)}">View feedback</a>`;
+  if (s.status === "failed") return `<a class="ghost sm" href="${s.assignment_id ? `/student/assignment/${s.assignment_id}` : "/grader"}" title="${esc(s.error || "Grading did not finish")}">Try again</a>`;
+  return `<a class="ghost sm" href="/jobs/${esc(s.job_id)}">Follow review</a>`;
 }
 
 function subRow(s, { showAssignment = true } = {}) {
@@ -110,44 +110,54 @@ export async function dashboard(view) {
   const hello = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const grading = d.recent.some((r) => r.status === "queued" || r.status === "running");
   const toLevel = s.level_size - s.into_level;
+  const feedbackHref = latest ? `/jobs/${latest.job_id}` : "/student/submissions";
   view.innerHTML = `
-  <header class="s-head">
-    <div><h1>${hello}, ${esc(first)}</h1>
-      <p class="sub">${open.length ? `${open.length} assignment${open.length > 1 ? "s are" : " is"} waiting for a first submission.` : "Every open assignment has a submission from you."}</p></div>
+  <header class="s-head study-head">
+    <div><p class="kicker">Study Home</p><h1>${hello}, ${esc(first)}</h1>
+      <p class="sub">${open.length ? `${open.length} assignment${open.length > 1 ? "s are" : " is"} waiting for a first submission.` : "Every open assignment has a submission. Practise a skill or improve a result next."}</p></div>
     <div class="xp" title="You earn XP from your best score on each assignment and from lab tasks the server checks">
       <div class="xp-t"><span>Level <b>${s.level}</b></span><span>${s.xp} XP, ${toLevel} more to level ${s.level + 1}</span></div>
       ${progressBar(s.into_level, s.level_size, "Progress to the next level")}
     </div>
   </header>
-  ${grading ? `<div class="banner"><span class="spinner"></span><span>One of your submissions is being reviewed. This page updates by itself when it's done.</span></div>` : ""}
+  ${grading ? `<div class="banner"><span class="spinner"></span><span>One of your submissions is being reviewed. You can keep studying; this page updates when it is ready.</span></div>` : ""}
   <section class="focus">${nextCard(next, improve)}${lastCard(latest, d.top_priorities)}</section>
-  <section class="report-row" aria-label="Your numbers">
-    <div><span>Average score</span><b>${s.avg_score ?? "–"}</b><em>${s.avg_score != null ? "best try on each assignment" : "appears after your first grade"}</em></div>
-    <div><span>Assignments done</span><b>${s.assignments_done}<small>of ${s.assignments_total}</small></b>${progressBar(s.assignments_done, s.assignments_total, "Assignments completed")}</div>
-    <div><span>Lab tasks</span><b>${s.labs_done}<small>of ${s.labs_total}</small></b>${progressBar(s.labs_done, s.labs_total, "Lab tasks completed")}</div>
-    <div><span>Class rank</span><b>${s.rank ? `#${s.rank}` : "–"}</b><em>${s.rank ? `<a href="/student/leaderboard">See the leaderboard</a>` : "earn XP to get a rank"}</em></div>
-  </section>
-  <section class="grid-2-1">
-    <div class="panel"><div class="panel-h"><h2>Score history</h2><span class="hint">${d.timeline.length} graded</span></div>${lineChart(d.timeline)}</div>
-    <div class="panel"><div class="panel-h"><h2>Skills</h2><span class="hint">out of 10</span></div>
-      ${Object.values(d.skills).some((v) => v != null) ? radarChart(d.skills) : emptyState("No skills yet", "Your skill profile appears after your first feedback.", "", "target")}</div>
-  </section>
-  <section class="grid-1-1">
-    <div class="panel"><div class="panel-h"><h2>Deadlines</h2><a href="/student/assignments">All assignments</a></div>
+  <nav class="quick-actions" aria-label="Study shortcuts">
+    <a href="/student/assignments">${icon("book")}<span><b>Coursework</b><small>See what is due</small></span>${icon("chevronRight")}</a>
+    <a href="/labs">${icon("flask")}<span><b>Skill Labs</b><small>Learn by doing</small></span>${icon("chevronRight")}</a>
+    <a href="/grader">${icon("zap")}<span><b>Project Check</b><small>Test a GitHub repo</small></span>${icon("chevronRight")}</a>
+    <a href="${feedbackHref}">${icon("list")}<span><b>Feedback</b><small>Fix and improve</small></span>${icon("chevronRight")}</a>
+  </nav>
+  <section class="grid-1-1 study-primary-grid">
+    <div class="panel"><div class="panel-h"><div><p class="kicker">Stay on track</p><h2>Upcoming deadlines</h2></div><a href="/student/assignments">All coursework</a></div>
       ${d.upcoming.length ? `<ul class="list due-list">${d.upcoming.map((a) => {
         const soon = daysLeft(a.due_at) < 3;
         return `<li><span class="list-ico">${icon(TRACK_ICON[a.track] || "book")}</span>
         <div class="li-main"><a href="/student/assignment/${a.id}"><b>${esc(a.title)}</b></a><span>${esc(fmtDate(a.due_at, true))}</span></div>
         ${a.mine?.best != null ? gradeBadge(a.mine.best, "") : `<span class="when${soon ? " soon" : ""}">${esc(relTime(a.due_at))}</span>`}</li>`;
       }).join("")}</ul>`
-        : emptyState("No upcoming deadlines", "Nothing is due right now.", "", "calendar")}
+        : emptyState("No upcoming deadlines", "Use the time for a recommended Skill Lab.", `<a class="ghost sm" href="/labs">Open Skill Labs</a>`, "calendar")}
     </div>
-    <div class="panel"><div class="panel-h"><h2>What to learn next</h2><a href="/labs">Labs</a></div>
+    <div class="panel"><div class="panel-h"><div><p class="kicker">Personal study plan</p><h2>What to learn next</h2></div><a href="/labs">Skill Labs</a></div>
       ${d.learning_path.length ? `<ul class="learn-list">${d.learning_path.slice(0, 4).map((x) => `<li>${icon("book")}<p>${learnLine(x)}</p></li>`).join("")}</ul>`
-        : emptyState("Nothing here yet", "After your first feedback you get a short list of topics to study, picked from your own code.", `<a class="ghost sm" href="/labs">Explore the labs</a>`, "bulb")}
+        : emptyState("Your plan starts after feedback", "Complete a Project Check or assignment and topics from your own code appear here.", `<a class="ghost sm" href="/grader">Check a project</a>`, "bulb")}
     </div>
   </section>
-  <section class="panel"><div class="panel-h"><h2>Recent submissions</h2><a href="/student/submissions">See all</a></div>${subsTable(d.recent.slice(0, 5))}</section>`;
+  <section class="report-row" aria-label="Your progress snapshot">
+    <div><span>Average score</span><b>${s.avg_score ?? "–"}</b><em>${s.avg_score != null ? "best try on each assignment" : "appears after your first grade"}</em></div>
+    <div><span>Coursework done</span><b>${s.assignments_done}<small>of ${s.assignments_total}</small></b>${progressBar(s.assignments_done, s.assignments_total, "Assignments completed")}</div>
+    <div><span>Lab tasks</span><b>${s.labs_done}<small>of ${s.labs_total}</small></b>${progressBar(s.labs_done, s.labs_total, "Lab tasks completed")}</div>
+    <div><span>Class rank</span><b>${s.rank ? `#${s.rank}` : "–"}</b><em>${s.rank ? `<a href="/student/leaderboard">View leaderboard</a>` : "earn XP to get a rank"}</em></div>
+  </section>
+  <details class="progress-disclosure">
+    <summary>${icon("chart")}<span class="grow"><b>Detailed progress</b><small>Score history, skill profile, and recent feedback</small></span>${icon("chevronDown")}</summary>
+    <div class="progress-body"><section class="grid-2-1">
+      <div class="panel"><div class="panel-h"><h2>Score history</h2><span class="hint">${d.timeline.length} graded</span></div>${lineChart(d.timeline)}</div>
+      <div class="panel"><div class="panel-h"><h2>Skills</h2><span class="hint">out of 10</span></div>
+        ${Object.values(d.skills).some((v) => v != null) ? radarChart(d.skills) : emptyState("No skills yet", "Your skill profile appears after your first feedback.", "", "target")}</div>
+    </section>
+    <section class="panel"><div class="panel-h"><h2>Recent feedback</h2><a href="/student/submissions">See all</a></div>${subsTable(d.recent.slice(0, 5))}</section></div>
+  </details>`;
   if (grading) {
     const t = setTimeout(() => window.__refresh(), 5000);
     return () => clearTimeout(t);
@@ -159,22 +169,39 @@ export async function dashboard(view) {
 export async function assignments(view) {
   const rows = await api("/api/assignments");
   const isInstructor = state.user?.role === "instructor";
-  const isOpen = (a) => a.accepting_submissions;
-  // To do first (soonest deadline first), then the ones you've submitted, then closed ones.
-  const rank = (a) => (isOpen(a) ? (a.mine ? 1 : 0) : 2);
-  const sorted = [...rows].sort((a, b) => rank(a) - rank(b) || byDue(a, b));
-  view.innerHTML = `${pageHeader("", "Assignments", "Each one lists exactly what will be checked. Your instructor controls deadlines and attempt limits; your best score counts.",
-      isInstructor ? `<a class="btn" href="/instructor/assignments">${icon("edit")} Manage assignments</a>` : "")}
-    ${rows.length ? `<section class="cards">${sorted.map((a) => `<article class="card a-card${!a.mine && isOpen(a) ? " todo" : ""}">
-      <div class="card-top"><span class="chip track">${icon(TRACK_ICON[a.track] || "book")} ${esc(TRACKS[a.track] || a.track)}</span><div class="chips">${assignmentStatusChip(a)}${dueChip(a.due_at)}${a.max_attempts != null ? `<span class="chip">${a.mine?.remaining_attempts ?? a.max_attempts} tries left</span>` : ""}</div></div>
-      <h2><a href="/student/assignment/${a.id}">${esc(a.title)}</a></h2>
-      <p>${esc(a.description)}</p>
-      <div class="card-foot">
-        ${a.mine ? `<span class="a-best">Best ${gradeBadge(a.mine.best, "")} after ${a.mine.attempts} ${a.mine.attempts > 1 ? "tries" : "try"}</span>`
-          : `<span class="hint">${isOpen(a) ? "Not submitted yet" : "Not accepting submissions"}</span>`}
-        <a class="${a.mine || !isOpen(a) ? "ghost" : "btn"} sm" href="/student/assignment/${a.id}">${a.mine ? "Review" : isOpen(a) ? "Start" : "View"}</a></div>
-    </article>`).join("")}</section>`
-      : `<section class="panel">${emptyState("No assignments yet", "Your instructor hasn't published any assignments. The labs are open in the meantime.", `<a class="btn" href="/labs">Open the labs</a>`, "book")}</section>`}`;
+  const stateFor = (a) => a.mine?.best != null ? "completed" : a.mine ? "in-progress" : a.accepting_submissions ? "todo" : "closed";
+  const rank = { todo: 0, "in-progress": 1, completed: 2, closed: 3 };
+  const sorted = [...rows].sort((a, b) => rank[stateFor(a)] - rank[stateFor(b)] || byDue(a, b));
+  const counts = Object.fromEntries(Object.keys(rank).map((key) => [key, rows.filter((a) => stateFor(a) === key).length]));
+  const label = { todo: "To do", "in-progress": "In progress", completed: "Feedback ready", closed: "Closed" };
+  view.innerHTML = `${pageHeader("Coursework", "Assignments", "Start what is due, continue unfinished work, or use feedback to improve a previous attempt.",
+      isInstructor ? `<a class="btn" href="/instructor/assignments">${icon("edit")} Manage coursework</a>` : "")}
+    ${rows.length ? `<div class="toolbar assignment-toolbar"><div class="seg" role="group" aria-label="Filter coursework">
+      <button type="button" data-a-filter="all" aria-pressed="true">All <span class="n">${rows.length}</span></button>
+      ${Object.keys(rank).map((key) => `<button type="button" data-a-filter="${key}" aria-pressed="false">${label[key]} <span class="n">${counts[key]}</span></button>`).join("")}
+      </div><span class="hint">The most useful next work appears first.</span></div>
+    <section class="cards assignment-cards">${sorted.map((a) => {
+      const itemState = stateFor(a);
+      const cta = itemState === "completed" ? (a.accepting_submissions ? "Improve" : "Review") : itemState === "in-progress" ? "Continue" : itemState === "todo" ? "Start" : "View";
+      return `<article class="card a-card state-${itemState}${itemState === "todo" ? " todo" : ""}" data-assignment-state="${itemState}">
+        <div class="card-top"><span class="chip track">${icon(TRACK_ICON[a.track] || "book")} ${esc(TRACKS[a.track] || a.track)}</span><span class="status-tag ${itemState}">${label[itemState]}</span></div>
+        <h2><a href="/student/assignment/${a.id}">${esc(a.title)}</a></h2><p>${esc(a.description)}</p>
+        <div class="chips">${assignmentStatusChip(a)}${dueChip(a.due_at)}${a.max_attempts != null ? `<span class="chip">${a.mine?.remaining_attempts ?? a.max_attempts} tries left</span>` : ""}</div>
+        <div class="card-foot">${a.mine ? `<span class="a-best">Best ${gradeBadge(a.mine.best, "")} after ${a.mine.attempts} ${a.mine.attempts > 1 ? "tries" : "try"}</span>`
+          : `<span class="hint">${a.accepting_submissions ? "Ready when you are" : "Read-only"}</span>`}
+          <a class="${itemState === "todo" ? "btn" : "ghost"} sm" href="/student/assignment/${a.id}">${cta}</a></div></article>`;
+    }).join("")}</section><section class="panel" id="assignment-filter-empty" hidden>${emptyState("Nothing in this view", "Choose another filter to see your coursework.", "", "book")}</section>`
+      : `<section class="panel">${emptyState("No assignments yet", "Your instructor hasn't published any coursework. Skill Labs are open in the meantime.", `<a class="btn" href="/labs">Open Skill Labs</a>`, "book")}</section>`}`;
+  view.querySelectorAll("[data-a-filter]").forEach((button) => button.addEventListener("click", () => {
+    const filter = button.dataset.aFilter;
+    let shown = 0;
+    view.querySelectorAll("[data-assignment-state]").forEach((card) => {
+      card.hidden = filter !== "all" && card.dataset.assignmentState !== filter;
+      if (!card.hidden) shown += 1;
+    });
+    view.querySelectorAll("[data-a-filter]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+    $("#assignment-filter-empty").hidden = shown > 0;
+  }));
 }
 
 function rubricPanel(a, best) {
@@ -255,8 +282,8 @@ export async function assignment(view, { id }) {
 export async function submissions(view) {
   const rows = await api("/api/student/submissions?limit=200");
   const graded = rows.filter((r) => r.status === "done");
-  view.innerHTML = `${pageHeader("", "My submissions", `${rows.length} submission${rows.length === 1 ? "" : "s"}, ${graded.length} with feedback. Open any one to read the full review.`,
-      `<a class="ghost" href="/grader">${icon("zap")} Practice run</a>`)}
+  view.innerHTML = `${pageHeader("Progress", "Feedback & progress", `${rows.length} submission${rows.length === 1 ? "" : "s"}, ${graded.length} with feedback. Open one, fix a priority, and check the improved version.`,
+      `<a class="btn" href="/grader">${icon("zap")} Check a project</a>`)}
     <section class="panel">${subsTable(rows)}</section>`;
 }
 

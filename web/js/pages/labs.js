@@ -15,12 +15,19 @@ function isDone(lab, task) {
 function tasksPanel(lab) {
   const l = catalog.labs.find((x) => x.id === lab);
   const done = (catalog.progress[lab] || []).length;
-  return `<div class="panel tasks" id="tasks-panel"><div class="panel-h"><h2>${icon("checkCircle")} Your tasks</h2><span class="hint">${done} of ${l.tasks.length} done</span></div>
-    ${progressBar(done, l.tasks.length, "Lab progress")}
-    <ul class="task-list">${l.tasks.map((t) => `<li class="${isDone(lab, t.id) ? "done" : ""}" data-task="${t.id}">
-      <span class="tick" aria-hidden="true">${icon("check")}</span><span class="grow">${esc(t.title)}</span>
-      ${t.xp ? `<span class="chip track" title="Checked by the server">+${t.xp} XP</span>` : ""}</li>`).join("")}</ul>
-    ${state.user ? "" : `<p class="hint" style="margin-top:12px"><a href="/login?next=${encodeURIComponent(location.pathname)}">Sign in</a> to save your progress and earn XP.</p>`}</div>`;
+  const next = l.tasks.find((t) => !isDone(lab, t.id));
+  return `<aside class="panel tasks guided-tasks" id="tasks-panel" aria-label="Lab learning path"><div class="panel-h"><div><p class="kicker">Learning path</p><h2>${icon("checkCircle")} Your tasks</h2></div><span class="hint">${done} of ${l.tasks.length} done</span></div>
+    ${progressBar(done, l.tasks.length, `${l.title} progress`)}
+    <ul class="task-list">${l.tasks.map((t) => {
+      const complete = isDone(lab, t.id), current = next?.id === t.id;
+      return `<li class="${complete ? "done" : current ? "current" : ""}" data-task="${t.id}"${current ? ' aria-current="step"' : ""}>
+        <span class="tick" aria-hidden="true">${icon("check")}</span><span class="grow">${esc(t.title)}<span class="sr"> — ${complete ? "complete" : current ? "up next" : "not started"}</span></span>
+        ${current ? `<span class="chip track">Up next</span>` : t.xp ? `<span class="chip track" title="Checked by the server">+${t.xp} XP</span>` : ""}</li>`;
+    }).join("")}</ul>
+    <div class="lab-next" role="status" aria-live="polite">${next
+      ? `${icon("target")}<span><b>Focus now: ${esc(next.title)}</b><small>Complete the matching activity. The next task will appear automatically.</small></span>`
+      : `${icon("trophy")}<span><b>Lab complete</b><small>Review this skill or choose another recommended lab.</small></span><a class="ghost sm" href="/labs">Choose another skill</a>`}</div>
+    ${state.user ? "" : `<p class="hint" style="margin-top:12px"><a href="/login?next=${encodeURIComponent(location.pathname)}">Sign in</a> to save your progress and earn XP.</p>`}</aside>`;
 }
 
 function refreshTasks(lab) {
@@ -36,7 +43,7 @@ async function complete(lab, task, { serverRecorded = false } = {}) {
     if (!serverRecorded) await api("/api/labs/progress", { method: "POST", body: { lab, task } });
     catalog.progress[lab] = [...(catalog.progress[lab] || []), task];
     refreshTasks(lab);
-    toast(xp ? `Task complete! +${xp} XP` : "Task complete!", "ok");
+    toast(xp ? `Task complete! +${xp} XP · Your next task is ready.` : "Task complete! Your next task is ready.", "ok");
   } catch (e) { toast(e.message, "error"); }
 }
 
@@ -61,7 +68,7 @@ function planPanel(rec) {
 export async function index(view) {
   await loadCatalog();
   const total = catalog.total_tasks, doneN = catalog.completed;
-  view.innerHTML = `${pageHeader("", "Labs", "Practise each part of the stack hands-on: frontend, testing, databases, load balancers, networks and Docker. Everything runs in your browser.",
+  view.innerHTML = `${pageHeader("Learn by doing", "Skill Labs", "Practise each part of the stack hands-on: frontend, testing, databases, load balancers, networks and Docker. Follow the recommended path or continue any skill.",
       state.user ? `<div class="best-badge"><span class="stat-ico">${icon("flask")}</span><div><span>Your progress</span><b>${doneN} of ${total} tasks</b></div></div>` : "")}
     ${planPanel(catalog.recommended)}
     <section class="cards labs">${catalog.labs.map((l) => {

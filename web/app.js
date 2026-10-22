@@ -14,50 +14,50 @@ const ROUTES = [
   ["/login", landing.login, "guest", "Student sign-in"],
   ["/login/instructor", landing.instructorLogin, "guest", "Instructor sign-in"],
   ["/signup", landing.signup, "guest", "Create account"],
-  ["/student/dashboard", student.dashboard, "user", "Dashboard"],
-  ["/student/assignments", student.assignments, "user", "Assignments"],
+  ["/student/dashboard", student.dashboard, "user", "Study Home"],
+  ["/student/assignments", student.assignments, "user", "Coursework"],
   ["/student/assignment/:id", student.assignment, "user", "Assignment"],
-  ["/student/submissions", student.submissions, "user", "My submissions"],
-  ["/student/leaderboard", student.leaderboard, "user", "Leaderboard"],
+  ["/student/submissions", student.submissions, "user", "Feedback & progress"],
+  ["/student/leaderboard", student.leaderboard, "user", "Class leaderboard"],
   ["/student/profile", student.profile, "user", "Profile"],
   ["/privacy", landing.privacy, "public", "Privacy"],
   ["/terms", landing.terms, "public", "Terms"],
-  ["/labs", labs.index, "public", "Labs"],
-  ["/labs/:lab", labs.lab, "public", "Lab"],
-  ["/grader", grader.page, "user", "Practice"],
+  ["/labs", labs.index, "public", "Skill Labs"],
+  ["/labs/:lab", labs.lab, "public", "Skill Lab"],
+  ["/grader", grader.page, "user", "Project Check"],
   ["/jobs/:id", grader.job, "user", "Feedback"],
-  ["/instructor/dashboard", instructor.dashboard, "instructor", "Class overview"],
-  ["/instructor/assignments", instructor.assignments, "instructor", "Manage assignments"],
-  ["/instructor/students", instructor.students, "instructor", "Students"],
+  ["/instructor/dashboard", instructor.dashboard, "instructor", "Command Center"],
+  ["/instructor/assignments", instructor.assignments, "instructor", "Coursework"],
+  ["/instructor/students", instructor.students, "instructor", "Learners"],
   ["/instructor/gradebook", insights.gradebook, "instructor", "Gradebook"],
   ["/instructor/assignment/:id", insights.assignmentReport, "instructor", "Assignment analytics"],
-  ["/instructor/student/:id", insights.studentProfile, "instructor", "Student"],
+  ["/instructor/student/:id", insights.studentProfile, "instructor", "Learner"],
   ["/system", system.page, "instructor", "Platform health"],
 ];
 
 const NAV = {
   student: [
-    ["", [["/student/dashboard", "Home", "home"], ["/student/assignments", "Assignments", "book"],
-      ["/labs", "Labs", "flask"], ["/grader", "Practice", "zap"]]],
-    ["Your progress", [["/student/submissions", "My submissions", "list"], ["/student/leaderboard", "Leaderboard", "trophy"],
+    ["Learn", [["/student/dashboard", "Study Home", "home"], ["/student/assignments", "Coursework", "book"],
+      ["/labs", "Skill Labs", "flask"], ["/grader", "Project Check", "zap"]]],
+    ["Your progress", [["/student/submissions", "Feedback & progress", "list"], ["/student/leaderboard", "Class leaderboard", "trophy"],
       ["/student/profile", "Profile", "user"]]],
   ],
   instructor: [
-    ["", [["/instructor/dashboard", "Overview", "chart"], ["/instructor/gradebook", "Gradebook", "list"],
-      ["/instructor/students", "Students", "users"], ["/instructor/assignments", "Assignments", "book"]]],
-    ["Course tools", [["/labs", "Labs", "flask"], ["/grader", "Practice grading", "zap"], ["/student/leaderboard", "Leaderboard", "trophy"]]],
-    ["Admin", [["/system", "Platform health", "activity"], ["/student/profile", "Profile", "user"]]],
+    ["Manage", [["/instructor/dashboard", "Command Center", "chart"], ["/instructor/gradebook", "Gradebook", "list"],
+      ["/instructor/students", "Learners", "users"], ["/instructor/assignments", "Coursework", "book"]]],
+    ["Teach & preview", [["/labs", "Skill Labs", "flask"], ["/grader", "Project Check", "zap"], ["/student/leaderboard", "Class leaderboard", "trophy"]]],
+    ["System", [["/system", "Platform health", "activity"], ["/student/profile", "Profile", "user"]]],
   ],
 };
 // Instructors work at a desk: their sections run across the top bar instead of a sidebar.
-const TABS = [["/instructor/dashboard", "Overview"], ["/instructor/gradebook", "Gradebook"], ["/instructor/students", "Students"],
-  ["/instructor/assignments", "Assignments"], ["/labs", "Labs"], ["/grader", "Practice grading"], ["/student/leaderboard", "Leaderboard"],
-  ["/system", "Platform health"]];
+const TABS = [["/instructor/dashboard", "Command Center"], ["/instructor/gradebook", "Gradebook"], ["/instructor/students", "Learners"],
+  ["/instructor/assignments", "Coursework"], ["/labs", "Skill Labs"], ["/grader", "Project Check"], ["/student/leaderboard", "Leaderboard"],
+  ["/system", "System"]];
 const MOBILE = {
-  student: [["/student/dashboard", "Home", "home"], ["/student/assignments", "Assignments", "book"], ["/labs", "Labs", "flask"],
-    ["/student/submissions", "Results", "list"], ["/student/profile", "Profile", "user"]],
-  instructor: [["/instructor/dashboard", "Overview", "chart"], ["/instructor/gradebook", "Grades", "list"],
-    ["/instructor/students", "Students", "users"], ["/instructor/assignments", "Assignments", "book"], ["/student/profile", "Profile", "user"]],
+  student: [["/student/dashboard", "Home", "home"], ["/student/assignments", "Work", "book"], ["/labs", "Labs", "flask"],
+    ["/grader", "Check", "zap"], ["/student/submissions", "Progress", "list"]],
+  instructor: [["/instructor/dashboard", "Center", "chart"], ["/instructor/gradebook", "Grades", "list"],
+    ["/instructor/students", "Learners", "users"], ["/instructor/assignments", "Work", "book"], ["/student/profile", "Profile", "user"]],
 };
 
 let cleanup = null;
@@ -84,6 +84,7 @@ window.__refresh = () => render({ keepScroll: true, quiet: true });
 
 const isActive = (href, path) => path === href || (href !== "/" && path.startsWith(href + "/"))
   || (href === "/student/assignments" && path.startsWith("/student/assignment/"))
+  || (href === "/student/submissions" && path.startsWith("/jobs/"))
   || (href === "/instructor/assignments" && path.startsWith("/instructor/assignment/"))
   || (href === "/instructor/students" && path.startsWith("/instructor/student/"));
 
